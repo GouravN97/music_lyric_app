@@ -7,9 +7,33 @@ import numpy as np
 from typing import Dict, Tuple
 import flash_fx_trial as flashfx
 import zoom_fx,slide_fx,rotation_fx
+import os
+from PIL import Image, ImageDraw, ImageFont
+import random
+
+def get_picture_vid(duration):
+    folder_path =  r'C:\Users\Gourav\music_app\miserybusiness_paramore'
+    if not os.path.exists(folder_path):
+        print(f"Folder not found: {folder_path}")
+        return None
+    
+    image_extensions = ('.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff')
+    imgs=[]
+    for filename in os.listdir(folder_path):
+        if filename.lower().endswith(image_extensions):
+            image_path = os.path.join(folder_path, filename)
+            
+            imgs.append(image_path)
+        
+    clip= random.choice([zoom_fx,slide_fx,rotation_fx]).create_clip(random.choice(imgs),duration=duration)
+    
+    clip.with_effects([mp.vfx.FadeOut(0.2)])            
+    return clip
+
+#def create_title_card():
 
 def create_lyric_video_pil(audio_file: str, lyrics_with_timing: Dict[int, Tuple[str, float, float]], word_timings: Dict[int, Tuple[str, float, float]],
-                          output_file: str = "lyric_video2.mp4"):
+                          output_file: str = "lyric_video3.mp4"):
     """
     Alternative implementation using PIL for text rendering.
     This is more reliable on Windows systems.
@@ -17,7 +41,12 @@ def create_lyric_video_pil(audio_file: str, lyrics_with_timing: Dict[int, Tuple[
     lm  mm  rm    # vertically centered left/middle/right
     ld  md  rd    # bottom‑aligned left/middle/right
 
-    """
+    """        
+    # Load audio
+    audio = mp.AudioFileClip(audio_file).subclipped(0,45)
+    duration = audio.duration
+    neighborhoods, stats, significant_transitions,timestamps=ana2.main_with_neighborhoods(audio_file)
+    
     avg_dur=0.0
     avg_gap=0.0
     prev=0.0
@@ -29,17 +58,10 @@ def create_lyric_video_pil(audio_file: str, lyrics_with_timing: Dict[int, Tuple[
         prev=word_timings[i][2]
 
     
-    print("average gap=",avg_gap)
-    print("average duration =",avg_dur)
+    #print("average gap=",avg_gap)
+    #print("average duration =",avg_dur)
 
-    from PIL import Image, ImageDraw, ImageFont
-    
-    # Load audio
-    audio = mp.AudioFileClip(audio_file).subclipped(0,60)
-    duration = audio.duration
-    neighborhoods, stats, significant_transitions,timestamps=ana2.main_with_neighborhoods(audio_file)
-    
-    def make_text_clip(text, sentence_words, start_time, duration, sentence_start_idx, font_size=81, img_size=(1920, 1080)):
+    def make_text_clip(text, start_time, duration, sentence_details, font_size=81, img_size=(1920, 1080)):
         """
         Creates a text clip that shows words appearing one by one
         
@@ -56,12 +78,10 @@ def create_lyric_video_pil(audio_file: str, lyrics_with_timing: Dict[int, Tuple[
             MoviePy CompositeVideoClip with word-by-word animation
         """
         print(f"Creating word-by-word clip for: '{text}'")
+        
+        
+        sentence_words=text.split()
         print(f"Words: {sentence_words}")
-        
-        if not sentence_words:
-            print("No words provided, skipping clip creation")
-            return None
-        
         try:
             font = ImageFont.truetype("GILLUBCD.ttf", font_size)
         except:
@@ -70,16 +90,16 @@ def create_lyric_video_pil(audio_file: str, lyrics_with_timing: Dict[int, Tuple[
         
         # Find word timings for this sentence
         word_clips = []
-        accumulated_text = ""
+        accumulated_text = ""        
         
-        # Get the full sentence dimensions for consistent positioning
-        full_sentence = " ".join(sentence_words)
         temp_img = Image.new('RGBA', img_size, (0, 0, 0, 0))
         temp_draw = ImageDraw.Draw(temp_img)
-        bbox = temp_draw.multiline_textbbox((0, 0), full_sentence, font=font, align='center', spacing=24)
+        bbox = temp_draw.multiline_textbbox((0, 0), text, font=font, align='center', spacing=24)
         text_width = bbox[2] - bbox[0]
         text_height = bbox[3] - bbox[1]
-        
+        print(sentence_details)
+
+        #print(text_width)
         # Center position for consistent text placement
         base_x = (img_size[0] - text_width) // 2
         base_y = (img_size[1] - text_height) // 2
@@ -92,18 +112,8 @@ def create_lyric_video_pil(audio_file: str, lyrics_with_timing: Dict[int, Tuple[
                 accumulated_text += " " + word
             
             # Find timing for this word from word_timings
-            word_start = start_time
-            word_end = start_time + duration
-            
-            # Try to find exact word timing
-            for word_idx in word_timings:
-                word_text, word_start_time, word_end_time = word_timings[word_idx]
-                if word_text.strip().lower() == word.strip().lower():
-                    # Check if this word timing falls within our sentence timeframe
-                    if word_start_time >= start_time - 0.1 and word_end_time <= start_time + duration + 0.1:
-                        word_start = word_start_time
-                        word_end = word_end_time
-                        break
+            word_start = sentence_details[i][1]
+            word_end = sentence_details[i][2]
             
             # Create image with accumulated text
             img = Image.new('RGBA', img_size, (0, 0, 0, 0))
@@ -111,10 +121,15 @@ def create_lyric_video_pil(audio_file: str, lyrics_with_timing: Dict[int, Tuple[
             
             # Draw accumulated text
             draw.multiline_text((base_x, base_y), text=accumulated_text, font=font, fill='white', spacing=24, align='left')
-            
             # Calculate clip duration - from when this word appears until sentence ends
             clip_start = word_start
-            clip_duration = (start_time + duration) - word_start
+            try:
+                clip_duration =  sentence_details[i+1][1] - word_start 
+            except:
+                clip_duration = word_end - word_start
+            
+            if (clip_duration)>avg_dur+avg_gap:
+                clip_duration=avg_dur+avg_gap
             
             if clip_duration > 0:
                 word_clip = mp.ImageClip(np.array(img), duration=clip_duration).with_start(clip_start)
@@ -126,7 +141,7 @@ def create_lyric_video_pil(audio_file: str, lyrics_with_timing: Dict[int, Tuple[
             # Create a fallback clip with full text
             img = Image.new('RGBA', img_size, (0, 0, 0, 0))
             draw = ImageDraw.Draw(img)
-            draw.multiline_text((base_x, base_y), text=full_sentence, font=font, fill='white', spacing=24, align='center')
+            draw.multiline_text((base_x, base_y), text=text, font=font, fill='white', spacing=24, align='center')
             fallback_clip = mp.ImageClip(np.array(img), duration=duration).with_start(start_time)
             return fallback_clip
         
@@ -264,8 +279,35 @@ def create_lyric_video_pil(audio_file: str, lyrics_with_timing: Dict[int, Tuple[
             gradient[:, x] = [r, g, b]
         
         return gradient
-    
-    background = mp.VideoClip(make_background, duration=duration)
+    #SORT NEIGHBOURHOODS DICTIONARY
+    bg_clips=[]
+    c=0
+    print(neighborhoods)
+
+    for n in neighborhoods:
+        print(c)
+        print("end="+str(n['end_time']))
+        
+        if n['end_time']<45:
+            bg1=get_picture_vid(n['duration']/2)
+            bg1=bg1.with_start(n['start_time'])
+            bg2=get_picture_vid(n['duration']/2)
+            bg2=bg2.with_start(n['start_time']+n['duration']/2)
+            #bg=mp.VideoClip(make_background,duration=n['duration']).with_start(n['start_time'])
+            bg_clips.append(bg1)
+            bg_clips.append(bg2)
+            print("duration="+str(n['duration']))
+        else:
+            bg=mp.VideoClip(make_background,duration=45-n['start_time']).with_start(n['start_time'])
+            print(45-n['start_time'])
+            bg=bg.with_effects([mp.vfx.FadeOut(0.2)])
+            bg_clips.append(bg)
+            break
+            
+        #bg=bg.with_effects([mp.vfx.FadeOut(0.2)])
+        
+        c+=1
+    #background = mp.VideoClip(make_background, duration=duration)
 
     # Create text clips using PIL
     text_clips = []
@@ -273,6 +315,7 @@ def create_lyric_video_pil(audio_file: str, lyrics_with_timing: Dict[int, Tuple[
     print(f"Processing {len(lyrics_with_timing)} sentences")
     print(f"Word timings has {len(word_timings)} words")
     
+    total_words=0
     # Process each sentence from lyrics_with_timing
     for sentence_idx in range(len(lyrics_with_timing)):
         if sentence_idx not in lyrics_with_timing:
@@ -285,40 +328,31 @@ def create_lyric_video_pil(audio_file: str, lyrics_with_timing: Dict[int, Tuple[
         print(f"Timing: {sentence_start_time} to {sentence_end_time} (duration: {sentence_duration})")
         
         # Find words that belong to this sentence based on timing
-        sentence_words = []
+        sentence_words = sentence_text.split()
         sentence_word_timings = []
         
-        for word_idx in range(len(word_timings)):
-            if word_idx not in word_timings:
-                continue
-                
-            word_text, word_start, word_end = word_timings[word_idx]
-            
-            # Check if word timing falls within sentence timing (with tolerance)
-            if (word_start >= sentence_start_time - 0.2 and 
-                word_start <= sentence_end_time + 0.2):
-                sentence_words.append(word_text)
-                sentence_word_timings.append((word_text, word_start, word_end))
-        
+        for idx in range(total_words,total_words+len(sentence_words)):
+            sentence_word_timings.append(word_timings[idx])
+
+        total_words+=len(sentence_words)
+
         print(f"Found {len(sentence_words)} words for sentence: {sentence_words}")
-        
-        # Skip if sentence would go beyond audio duration
+
         if sentence_end_time > duration:
             print(f"Skipping sentence ending at {sentence_end_time} (beyond duration {duration})")
             break
         
-        # Skip empty sentences
         if not sentence_words:
             print("No words found for sentence, skipping")
             continue
         
         # Create text clip for this sentence with word-by-word reveal
+        print(sentence_word_timings)
         sentence_clip = make_text_clip(
-            sentence_text,
-            sentence_words,
+            sentence_text,            
             sentence_start_time,
             sentence_duration,
-            sentence_idx
+            sentence_word_timings
         )
         
         if sentence_clip:
@@ -327,21 +361,28 @@ def create_lyric_video_pil(audio_file: str, lyrics_with_timing: Dict[int, Tuple[
     print(f"\nCreated {len(text_clips)} text clips")
     
     # Combine everything
-    myvideo = mp.CompositeVideoClip([background] + text_clips)
+    myvideo = mp.CompositeVideoClip(bg_clips + text_clips)
     myvideo = myvideo.with_audio(audio)
     for stamp in timestamps:
         try:
             myvideo=flashfx.basic_flash_example(myvideo,stamp[1])
         except Exception as e:
             print(e)
-            
+        
+    #myvideo.preview()
     # Write video
     myvideo.write_videofile(output_file,
                                fps=24,
+                               bitrate='15000k',
                                codec='libx264',
                                audio_codec='aac',
                                temp_audiofile='temp-audio.m4a',
-                               remove_temp=True)
+                               remove_temp=True,
+                                ffmpeg_params=[
+                                '-crf', '20',  
+                                '-profile:v', 'high',
+                                '-pix_fmt', 'yuv420p'
+                            ])
     
     # Clean up
     audio.close()
