@@ -70,7 +70,8 @@ def analyze_beat_energy(y, sr, beat_times):
             'energy': energy_score,
             'beat_number': i + 1,
             'rms': segment_rms,
-            'centroid': segment_centroid
+            'centroid': segment_centroid,
+            'zcr': segment_zcr  # Added ZCR to the segment data
         })
     
     return segments
@@ -512,9 +513,13 @@ def plot_energy_with_transitions(y, sr, beat_times, classified_segments, neighbo
     
     plt.show()
 
-def save_complete_analysis(neighborhoods, stats, transitions, output_file='complete_energy_analysis.txt'):
-    """Save complete analysis including neighborhoods and transitions"""
-    start_and_end_times={}
+def save_complete_analysis(neighborhoods, stats, transitions, classified_segments, output_file='complete_energy_analysis_miserybusiness.txt'):
+    """Save complete analysis including neighborhoods, transitions, and beat-level features"""
+    import pandas as pd
+    
+    start_and_end_times = {}
+    
+    # Save summary analysis to text file
     with open(output_file, 'w') as f:
         f.write("=== COMPLETE ENERGY ANALYSIS ===\n\n")
         
@@ -532,7 +537,7 @@ def save_complete_analysis(neighborhoods, stats, transitions, output_file='compl
                    f"({neighborhood['start_time']:.2f}s - {neighborhood['end_time']:.2f}s) "
                    f"Duration: {neighborhood['duration']:.2f}s, "
                    f"Avg Energy: {neighborhood['avg_energy']:.3f}\n")
-            start_and_end_times[neighborhood['neighborhood_id']]=(neighborhood['start_time'],neighborhood['end_time'])
+            start_and_end_times[neighborhood['neighborhood_id']] = (neighborhood['start_time'], neighborhood['end_time'])
         
         # Transition analysis  
         f.write(f"\n\nENERGY TRANSITIONS (Verse/Chorus Changes):\n")
@@ -549,20 +554,73 @@ def save_complete_analysis(neighborhoods, stats, transitions, output_file='compl
         else:
             f.write("No significant energy transitions detected.\n")
             f.write("Try lowering the spike_threshold parameter.\n")
-    print (start_and_end_times)
+        
+        # Additional statistics for the beat-level features
+        f.write(f"\n\nBEAT-LEVEL FEATURE STATISTICS:\n")
+        all_rms = [seg['rms'] for seg in classified_segments]
+        all_centroids = [seg['centroid'] for seg in classified_segments]
+        all_zcr = [seg['zcr'] for seg in classified_segments]
+        
+        f.write(f"RMS Energy:\n")
+        f.write(f"  Mean: {np.mean(all_rms):.6f}\n")
+        f.write(f"  Std:  {np.std(all_rms):.6f}\n")
+        f.write(f"  Min:  {np.min(all_rms):.6f}\n")
+        f.write(f"  Max:  {np.max(all_rms):.6f}\n\n")
+        
+        f.write(f"Spectral Centroid:\n")
+        f.write(f"  Mean: {np.mean(all_centroids):.2f} Hz\n")
+        f.write(f"  Std:  {np.std(all_centroids):.2f} Hz\n")
+        f.write(f"  Min:  {np.min(all_centroids):.2f} Hz\n")
+        f.write(f"  Max:  {np.max(all_centroids):.2f} Hz\n\n")
+        
+        f.write(f"Zero Crossing Rate:\n")
+        f.write(f"  Mean: {np.mean(all_zcr):.6f}\n")
+        f.write(f"  Std:  {np.std(all_zcr):.6f}\n")
+        f.write(f"  Min:  {np.min(all_zcr):.6f}\n")
+        f.write(f"  Max:  {np.max(all_zcr):.6f}\n\n")
+        
+        f.write(f"Beat-by-beat data saved to: {output_file.replace('.txt', '_beats.csv')}\n")
+    
+    # Save beat-by-beat analysis to CSV file
+    csv_file = output_file.replace('.txt', '_beats.csv')
+    
+    # Prepare beat data for CSV
+    beat_data = []
+    for segment in classified_segments:
+        duration = segment['end_time'] - segment['start_time']
+        beat_data.append({
+            'beat_number': segment['beat_number'],
+            'start_time': round(segment['start_time'], 3),
+            'end_time': round(segment['end_time'], 3),
+            'duration': round(duration, 3),
+            'energy': round(segment['energy'], 6),
+            'classification': segment['classification'],
+            'rms': round(segment['rms'], 8),
+            'centroid': round(segment['centroid'], 2),
+            'zcr': round(segment['zcr'], 8)
+        })
+    
+    # Create DataFrame and save to CSV
+    df = pd.DataFrame(beat_data)
+    df.to_csv(csv_file, index=False)
+    
+    print(f"Summary analysis saved to {output_file}")
+    print(f"Beat-by-beat data saved to {csv_file}")
+    print(f"Total beats analyzed: {len(classified_segments)}")
+    print(start_and_end_times)
     return start_and_end_times
 
 # Modified main function with transition detection
 def main_with_neighborhoods(audio_file):
-    timestamps={}
+    timestamps = {}
     try:
         # Existing analysis
-        beat_times, tempo, beat_frames, y, sr = detect_beats(audio_file[:-4].lower()+"_paramore_instrumental.wav")
+        beat_times, tempo, beat_frames, y, sr = detect_beats(audio_file[:-4].lower()+"_paramore_drums.wav")
         segments = analyze_beat_energy(y, sr, beat_times)
         classified_segments = classify_beat_segments(segments)
         
         # Neighborhood analysis for song structure
-        neighborhoods = identify_energy_neighborhoods(classified_segments,hysteresis_factor=0.01,min_section_duration=2)
+        neighborhoods = identify_energy_neighborhoods(classified_segments, hysteresis_factor=0.01, min_section_duration=2)
         stats, high_neighborhoods, low_neighborhoods = analyze_neighborhood_patterns(neighborhoods)
         
         # NEW: Transition detection for verse/chorus changes
@@ -571,33 +629,16 @@ def main_with_neighborhoods(audio_file):
                                                    lookback_window=4)
         significant_transitions = refine_transitions(raw_transitions, min_time_gap=8.0)
         
-        # Results
-        print(f"Tempo: {float(tempo):.1f} BPM")  
-        print(f"Song duration: {len(y)/sr:.1f} seconds")
-        print(f"\nSONG STRUCTURE:")
-        print(f"Total neighborhoods: {stats['total_neighborhoods']}")
-        print(f"High energy sections: {stats['high_energy_count']} (avg {stats['avg_high_energy_duration']:.1f}s)")
-        print(f"Low energy sections: {stats['low_energy_count']} (avg {stats['avg_low_energy_duration']:.1f}s)")
-        
-        print(f"\nTRANSITIONS:")
-        print(f"Total significant transitions: {len(significant_transitions)}")
-        
-        if significant_transitions:
-            print("Key verse/chorus transitions:")
-            for i, trans in enumerate(significant_transitions[:5], 1):  # Show first 5
-                print(f"  {i}. {trans['time']:.1f}s: {trans['musical_transition']} ({trans['relative_change']:+.1%})")
-        
-        # Save and plot
-        timestamps=save_complete_analysis(neighborhoods, stats, significant_transitions,'complete_energy_analysis_'+audio_file[:-4]+'.txt')
-        plot_energy_with_transitions(y, sr, beat_times, classified_segments, neighborhoods, significant_transitions, 
-                                   output_file=f'energy_plot_{audio_file[:-4]}.png')
+        # Save analysis with beat-level features
+        timestamps = save_complete_analysis(neighborhoods, stats, significant_transitions, classified_segments, audio_file[:-4]+'_paramore_drums.txt')
         
     except FileNotFoundError:
         print(f"Error: File '{audio_file}' not found.")
     except Exception as e:
         print(f"Error: {e}")
-    return neighborhoods, stats, significant_transitions,timestamps
+    return neighborhoods, stats, significant_transitions, timestamps
 
 
 if __name__ == "__main__":
-    neighborhoods, stats, transitions,timestamps = main_with_neighborhoods('ComeALittleCloservocals_instrumental.wav')
+    neighborhoods, stats, transitions, timestamps = main_with_neighborhoods('miserybusiness.wav')
+    print(type(neighborhoods[0]))
