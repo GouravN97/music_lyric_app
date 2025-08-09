@@ -11,9 +11,136 @@ import os
 from PIL import Image, ImageDraw, ImageFont
 import random
 import advanced_textfx as tfx
+import math
 
-
+# Text effects functions from the second program
+def random_blinking_effect(text, duration=3, size=(1920, 1080), fontsize=80, start_time=0):
+    """
+    Effect: Characters randomly appear in their final positions
+    Modified to work with the lyric video system
+    """
+    # Create base transparent clip
+    base = mp.ColorClip(size=size, color=(0, 0, 0), duration=duration, is_mask=False).with_opacity(0)
     
+    # Get final text position
+    try:
+        final_text = mp.TextClip(text=text, font_size=fontsize, color='white', font='STENCIL.ttf')
+    except:
+        final_text = mp.TextClip(text=text, font_size=fontsize, color='white')
+    
+    final_x = (size[0] - final_text.w) // 2
+    final_y = (size[1] - final_text.h) // 2
+    
+    clips = [base]
+    
+    # Create individual character clips
+    for i, chr in enumerate(text):
+        if chr == ' ':
+            continue
+            
+        # Create character clip
+        try:
+            char_clip = mp.TextClip(text=chr, font_size=fontsize, color='white', font='STENCIL.ttf', duration=duration)
+        except:
+            char_clip = mp.TextClip(text=chr, font_size=fontsize, color='white', duration=duration)
+        
+        # Calculate final position for this character
+        char_width = fontsize * 0.6  # Approximate character width
+        target_x = final_x + (i * char_width)
+        target_y = final_y
+        
+        # Random appearance time
+        appear_time = random.uniform(0, duration * 0.8)
+        
+        # Set character to appear at random time in final position
+        animated_char = char_clip.with_position((target_x, target_y)).with_start(start_time + appear_time)
+        
+        clips.append(animated_char)
+    
+    return mp.CompositeVideoClip(clips).with_start(start_time)
+
+def random_character_appearance_effect(text, duration=3, size=(1920, 1080), fontsize=80, start_time=0):
+    """
+    Effect: Characters randomly appear and move to form the final word
+    Modified to work with the lyric video system
+    """
+    # Create base transparent clip
+    base = mp.ColorClip(size=size, color=(0, 0, 0), duration=duration, is_mask=False).with_opacity(0)
+    
+    # Get final text position
+    try:
+        final_text = mp.TextClip(text=text, font_size=fontsize, color='white', font='STENCIL.ttf')
+    except:
+        final_text = mp.TextClip(text=text, font_size=fontsize, color='white')
+    
+    final_x = (size[0] - final_text.w) // 2
+    final_y = (size[1] - final_text.h) // 2
+    
+    clips = [base]
+    
+    # Create individual character clips
+    for i, char in enumerate(text):
+        if char == ' ':
+            continue
+            
+        # Create character clip
+        try:
+            char_clip = mp.TextClip(text=char, font_size=fontsize, color='white', font='STENCIL.ttf', duration=duration)
+        except:
+            char_clip = mp.TextClip(text=char, font_size=fontsize, color='white', duration=duration)
+        
+        # Calculate final position for this character
+        char_width = fontsize * 0.6  # Approximate character width
+        target_x = final_x + (i * char_width)
+        target_y = final_y
+        
+        # Random starting position
+        start_x = random.randint(0, size[0] - char_clip.w)
+        start_y = random.randint(0, size[1] - char_clip.h)
+        
+        # Random appearance time
+        appear_time = random.uniform(0, duration * 0.3)
+        move_duration = duration - appear_time
+        
+        # Position animation from random start to final position
+        def make_pos_func(sx, sy, tx, ty, at, md):
+            def pos_func(t):
+                if t < at:
+                    return (sx, sy)  # Stay at start position until appear time
+                else:
+                    # Smooth transition to target
+                    progress = min((t - at) / md, 1)
+                    # Ease-out animation
+                    progress = 1 - (1 - progress) ** 3
+                    x = sx + (tx - sx) * progress
+                    y = sy + (ty - sy) * progress
+                    return (x, y)
+            return pos_func
+        
+        # Apply position animation
+        animated_char = char_clip.with_position(
+            make_pos_func(start_x, start_y, target_x, target_y, appear_time, move_duration)
+        )
+        
+        clips.append(animated_char)
+    
+    return mp.CompositeVideoClip(clips).with_start(start_time)
+
+def create_title_card_with_effects(artist="ARTIST", title="SONG TITLE", duration_each=3):
+    """
+    Creates title cards using the text effects from the second program
+    """
+    # Create title effect (random character appearance)
+    title_effect = random_character_appearance_effect(title, duration=duration_each, fontsize=120)
+    
+    # Create artist effect (random blinking) - starts after title
+    artist_effect = random_blinking_effect(artist, duration=duration_each, fontsize=80, start_time=duration_each)
+    
+    # Combine both effects
+    title_card = mp.CompositeVideoClip([title_effect, artist_effect])
+    
+    return title_card
+
 def get_picture_vid(duration):
     folder_path =  r'C:\Users\Gourav\music_app\miserybusiness_paramore'
     if not os.path.exists(folder_path):
@@ -25,29 +152,22 @@ def get_picture_vid(duration):
     for filename in os.listdir(folder_path):
         if filename.lower().endswith(image_extensions):
             image_path = os.path.join(folder_path, filename)
-            
             imgs.append(image_path)
         
     clip= random.choice([zoom_fx,slide_fx,rotation_fx]).create_clip(random.choice(imgs),duration=duration)
-    
     clip.with_effects([mp.vfx.FadeOut(0.2)])            
     return clip
 
-
-
-
 def create_lyric_video_pil(audio_file: str, lyrics_with_timing: Dict[int, Tuple[str, float, float]], word_timings: Dict[int, Tuple[str, float, float]],
-                          output_file: str = "lyric_video3.mp4"):
+                          output_file: str = "lyric_video5.mp4", use_title_effects: bool = True):
     """
-    Alternative implementation using PIL for text rendering.
-    This is more reliable on Windows systems.
-    la  ma  ra    # top‑aligned left/middle/right
-    lm  mm  rm    # vertically centered left/middle/right
-    ld  md  rd    # bottom‑aligned left/middle/right
-
+    Enhanced lyric video creation with integrated text effects
     """        
+    text_colors=["#0D9053","#E0E845","#1B8DBA","#E80E12","#D2D2D2","#900D71","#FD9000"]
+    bg_colors=[("#8DB673"),("#00236A","#DF8A00"),("#000275","#003563"),("#D8DC4E","#D560CE"),("#000000","#0D9053","#000275","#E80E12","#900D71","#DF8A00"),("#E384C5","#E80E12"),("#E80E12","#E9FC42")]
+    fonts=["BERNHC","BRITANIC","BROADW","COLONNA","ELEPHNT","ELEPHNTI","GILLUBCD","HTOWER","HTOWERI","LBRITE","LBRITED","LBRITEDI","LBRITEI","SCRIPTBL","segoesc","segoescb","smalle","times","timesbd","timesbi","timesi","VINERITC","VIVALDII","VLADIMIR","STENCIL"]
     # Load audio
-    audio = mp.AudioFileClip(audio_file).subclipped(0,45)
+    audio = mp.AudioFileClip(audio_file).subclipped(0,40)
     duration = audio.duration
     neighborhoods, stats, significant_transitions,timestamps=ana2.main_with_neighborhoods(audio_file)
     
@@ -68,100 +188,158 @@ def create_lyric_video_pil(audio_file: str, lyrics_with_timing: Dict[int, Tuple[
         avg_sentence_dur/=(idx+1)
         idx+=1
 
-    #print("average gap=",avg_gap)
     print("average duration =",avg_sentence_dur)
-
-    def make_text_clip(text, start_time, duration, sentence_details, font_size=81, img_size=(1920, 1080)):
+    current="#D2D2D2"
+    def make_text_clip(text, start_time, duration, sentence_details, font_size=81, img_size=(1920, 1080),drop=False):
         """
-        Creates a text clip that shows words appearing one by one
-        
-        Args:
-            text: Full sentence text
-            sentence_words: List of words in the sentence
-            start_time: When sentence starts
-            duration: Total sentence duration
-            sentence_start_idx: Starting word index in word_timings for this sentence
-            font_size: Font size
-            img_size: Image dimensions
-        
-        Returns:
-            MoviePy CompositeVideoClip with word-by-word animation
+        Creates a text clip that shows words appearing one by one with proper text wrapping
         """
         print(f"Creating word-by-word clip for: '{text}'")
-        
-        
+        current_color=current
         sentence_words=text.split()
         print(f"Words: {sentence_words}")
-        try:
-            font = ImageFont.truetype("GILLUBCD.ttf", font_size)
-        except:
-            print("Font GILLUBCD.ttf not found, using default font")
-            font = ImageFont.load_default()
+
+        enlarged_font_size = int(font_size * 2)
+    
+        font = ImageFont.truetype("GILLUBCD.ttf", font_size)
+        enlarged_font = ImageFont.truetype(random.choice(fonts)+".ttf", enlarged_font_size)
+    
         
-        # Find word timings for this sentence
-        word_clips = []
-        accumulated_text = ""        
+        # Calculate available width with margins (10% margin on each side)
+        margin = int(img_size[0] * 0.1)
+        available_width = img_size[0] - (2 * margin)
         
+        # Function to wrap text to fit within available width
+        def wrap_text_to_width(text_to_wrap,font=font):
+            words = text_to_wrap.split()
+            lines = []
+            current_line = ""
+            
+            for word in words:
+                test_line = current_line + (" " if current_line else "") + word
+                temp_img = Image.new('RGBA', (available_width, 100), (0, 0, 0, 0))
+                temp_draw = ImageDraw.Draw(temp_img)
+                bbox = temp_draw.textbbox((0, 0), test_line, font=font)
+                line_width = bbox[2] - bbox[0]
+                
+                if line_width <= available_width:
+                    current_line = test_line
+                else:
+                    if current_line:
+                        lines.append(current_line)
+                        current_line = word
+                    else:
+                        # Single word is too long, force it on its own line
+                        lines.append(word)
+                        current_line = ""
+            
+            if current_line:
+                lines.append(current_line)
+            
+            return "\n".join(lines)
+        
+        # Get wrapped text dimensions
+        wrapped_text = wrap_text_to_width(text)
         temp_img = Image.new('RGBA', img_size, (0, 0, 0, 0))
         temp_draw = ImageDraw.Draw(temp_img)
-        bbox = temp_draw.multiline_textbbox((0, 0), text, font=font, align='center', spacing=24)
+        bbox = temp_draw.multiline_textbbox((0, 0), wrapped_text, font=font, align='center', spacing=24)
         text_width = bbox[2] - bbox[0]
         text_height = bbox[3] - bbox[1]
+        
+        print(f"Wrapped text dimensions: {text_width}x{text_height}")
         print(sentence_details)
 
-        #print(text_width)
-        # Center position for consistent text placement
+        # Center position for text placement
         base_x = (img_size[0] - text_width) // 2
         base_y = (img_size[1] - text_height) // 2
         
+        # Find word clips
+        word_clips = []
+        accumulated_text = ""        
+        font_to_use=font
         for i, word in enumerate(sentence_words):
             # Build accumulated text (all words up to current word)
+            if (i==len(sentence_words)-1):
+                current_color=text_colors[random.randint(0,len(text_colors)-1)]
+                font_to_use=enlarged_font
+                
             if i == 0:
                 accumulated_text = word
+                
             else:
                 accumulated_text += " " + word
+                
             
+            # Wrap the accumulated text
+            wrapped_accumulated = wrap_text_to_width(accumulated_text, font_to_use)            
             # Find timing for this word from word_timings
             word_start = sentence_details[i][1]
             word_end = sentence_details[i][2]
             
-            # Create image with accumulated text
+            # Create image with wrapped accumulated text
             img = Image.new('RGBA', img_size, (0, 0, 0, 0))
             draw = ImageDraw.Draw(img)
             
-            # Draw accumulated text
-            draw.multiline_text((base_x, base_y), text=accumulated_text, font=font, fill='white', spacing=24, align='left')
-            # Calculate clip duration - from when this word appears until sentence ends
+            if i==len(sentence_words)-1:
+            # Recalculate position for enlarged text
+                bbox = draw.multiline_textbbox((0, 0), wrapped_accumulated, font=font_to_use, align='center', spacing=24)
+                enlarged_text_width = bbox[2] - bbox[0]
+                enlarged_text_height = bbox[3] - bbox[1]
+                enlarged_x = (img_size[0] - enlarged_text_width) // 2
+                enlarged_y = (img_size[1] - enlarged_text_height) // 2
+                
+                # Draw wrapped accumulated text with enlarged font
+                draw.multiline_text((enlarged_x, enlarged_y), text=wrapped_accumulated, font=font_to_use, 
+                                fill=current_color, spacing=24, align='left')
+            else:
+                # Draw wrapped accumulated text with normal font and original positioning
+                draw.multiline_text((base_x, base_y), text=wrapped_accumulated, font=font_to_use, 
+                                fill=current_color, spacing=24, align='left')
+            # Calculate clip duration - from when this word appears until next word or end
             clip_start = word_start
             try:
-                clip_duration =  sentence_details[i+1][1] - word_start 
+                clip_duration = sentence_details[i+1][1] - word_start 
             except:
                 clip_duration = word_end - word_start
             
-            if (clip_duration)>avg_dur+avg_gap:
-                clip_duration=avg_dur+avg_gap
+            # Apply duration capping as in original
+            if clip_duration > avg_dur + avg_gap:
+                clip_duration = avg_dur + avg_gap
                 try:
-                    clip_start=sentence_details[i+1][1]-clip_duration
+                    clip_start = sentence_details[i+1][1] - clip_duration
                 except:
                     pass
             
             if clip_duration > 0:
-                word_clip = mp.ImageClip(np.array(img), duration=clip_duration).with_start(clip_start)
+                word_clip = mp.ImageClip(np.array(img), duration=clip_duration).with_start(clip_start-0.09)
                 word_clips.append(word_clip)
                 print(f"Word '{word}' clip: start={clip_start:.2f}, duration={clip_duration:.2f}")
         
         if not word_clips:
             print("No word clips created, creating fallback")
-            # Create a fallback clip with full text
+            # Create a fallback clip with wrapped text
             img = Image.new('RGBA', img_size, (0, 0, 0, 0))
             draw = ImageDraw.Draw(img)
-            draw.multiline_text((base_x, base_y), text=text, font=font, fill='white', spacing=24, align='center')
+            wrapped_fallback = wrap_text_to_width(text)
+            
+            # Recalculate position for wrapped fallback text
+            bbox = draw.multiline_textbbox((0, 0), wrapped_fallback, font=font, align='center', spacing=24)
+            fallback_width = bbox[2] - bbox[0]
+            fallback_height = bbox[3] - bbox[1]
+            fallback_x = (img_size[0] - fallback_width) // 2
+            fallback_y = (img_size[1] - fallback_height) // 2
+            
+            draw.multiline_text((fallback_x, fallback_y), text=wrapped_fallback, font=font, 
+                            fill='white', spacing=24, align='center')
             fallback_clip = mp.ImageClip(np.array(img), duration=duration).with_start(start_time)
             return fallback_clip
         
         # Combine all word clips
         final_clip = mp.CompositeVideoClip(word_clips)
         return final_clip
+
+    '''
+    '''
 
     def make_text_clip_fade(text, words, start_time, duration, font_size=81, img_size=(1920, 1080), fade_duration=0.5):
         """
@@ -293,11 +471,12 @@ def create_lyric_video_pil(audio_file: str, lyrics_with_timing: Dict[int, Tuple[
             gradient[:, x] = [r, g, b]
         
         return gradient
-    #SORT NEIGHBOURHOODS DICTIONARY
+    
     bg_clips=[]
     c=0
-    print(neighborhoods)
-
+    #print(neighborhoods)
+    '''
+    ADD THIS BACK IN
     for n in neighborhoods:
         print(c)
         print("end="+str(n['end_time']))
@@ -307,7 +486,6 @@ def create_lyric_video_pil(audio_file: str, lyrics_with_timing: Dict[int, Tuple[
             bg1=bg1.with_start(n['start_time'])
             bg2=get_picture_vid(n['duration']/2)
             bg2=bg2.with_start(n['start_time']+n['duration']/2)
-            #bg=mp.VideoClip(make_background,duration=n['duration']).with_start(n['start_time'])
             bg_clips.append(bg1)
             bg_clips.append(bg2)
             print("duration="+str(n['duration']))
@@ -317,12 +495,10 @@ def create_lyric_video_pil(audio_file: str, lyrics_with_timing: Dict[int, Tuple[
             bg=bg.with_effects([mp.vfx.FadeOut(0.2)])
             bg_clips.append(bg)
             break
-            
-        #bg=bg.with_effects([mp.vfx.FadeOut(0.2)])
-        
         c+=1
-    #background = mp.VideoClip(make_background, duration=duration)
-
+    '''
+    #bg=mp.VideoClip(make_background,duration=audio.duration)
+    #bg_clips=[bg]
     # Create text clips using PIL
     text_clips = []
     
@@ -330,6 +506,10 @@ def create_lyric_video_pil(audio_file: str, lyrics_with_timing: Dict[int, Tuple[
     print(f"Word timings has {len(word_timings)} words")
     
     total_words=0
+    
+    # Check if we should add title effects for the first sentence
+    title_card_added = False
+    
     # Process each sentence from lyrics_with_timing
     for sentence_idx in range(len(lyrics_with_timing)):
         if sentence_idx not in lyrics_with_timing:
@@ -360,9 +540,22 @@ def create_lyric_video_pil(audio_file: str, lyrics_with_timing: Dict[int, Tuple[
             print("No words found for sentence, skipping")
             continue
         
-        if (sentence_idx==0 and sentence_duration>avg_sentence_dur*2):
-            #text_cipcreate_title_card(artist="paramore",title="Misery Business",duration_each=avg_sentence_dur)
-            print("Title card should fit")
+        # Add title card with effects if this is the first sentence and it has enough duration
+        if (sentence_idx == 0 and sentence_duration > avg_sentence_dur * 2 and use_title_effects and not title_card_added):
+            print("Adding title card with text effects")
+            
+            artist = "PARAMORE"  # You can make this dynamic
+            title = "MISERY BUSINESS"  # You can make this dynamic
+            
+            # Calculate duration for each effect (split the available time)
+            effect_duration = min(avg_sentence_dur, sentence_duration / 3)
+            
+            # Create title card
+            title_card = create_title_card_with_effects(artist=artist, title=title, duration_each=effect_duration)
+            title_card = title_card.with_start(sentence_start_time)
+            text_clips.append(title_card)
+            title_card_added = True
+        
         # Create text clip for this sentence with word-by-word reveal
         print(sentence_word_timings)
         sentence_clip = make_text_clip(
@@ -378,35 +571,32 @@ def create_lyric_video_pil(audio_file: str, lyrics_with_timing: Dict[int, Tuple[
     print(f"\nCreated {len(text_clips)} text clips")
     
     # Combine everything
-    myvideo = mp.CompositeVideoClip(bg_clips + text_clips)
+    #myvideo = mp.CompositeVideoClip(bg_clips + text_clips)
+    myvideo=mp.CompositeVideoClip(text_clips)
     myvideo = myvideo.with_audio(audio)
+    
+    # Apply flash effects
     for stamp in timestamps:
         try:
             myvideo=flashfx.basic_flash_example(myvideo,stamp[1])
         except Exception as e:
             print(e)
         
-    #myvideo.preview()
     # Write video
     myvideo.write_videofile(output_file,
-                               fps=24,
-                               bitrate='15000k',
+                               fps=16,
+                               bitrate='8000k',
                                codec='libx264',
                                audio_codec='aac',
                                temp_audiofile='temp-audio.m4a',
                                remove_temp=True,
-                                ffmpeg_params=[
-                                '-crf', '20',  
-                                '-profile:v', 'high',
-                                '-pix_fmt', 'yuv420p'
-                            ])
+                                )
     
     # Clean up
     audio.close()
     myvideo.close()
     
     return output_file
-
 
 if __name__ == "__main__":
     name=input()
