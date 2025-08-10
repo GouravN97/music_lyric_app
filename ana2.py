@@ -58,11 +58,22 @@ def analyze_beat_energy(y, sr, beat_times):
         segment_zcr = np.mean(zero_crossing_rate[start_frame:end_frame])
         
         # Composite energy score
-        energy_score = (
-            0.5 * (segment_rms / np.max(rms_energy)) +
-            0.5 * (segment_centroid / np.max(spectral_centroids)) +
-            0.0 * (segment_zcr / np.max(zero_crossing_rate))
-        )
+        """
+        if vocals, rms=0.3, centroid =0.2, zcr= 0.5, 
+        if drums, rms = 0.7, centroid=0.2, zcr=0.1,
+        instruments, rms=0.4, c=0.6, zcr=0.0
+        for whole assortment
+        use 0.4, 0.4, 0.2
+        """
+        silence_threshold = 0.01 * np.max(rms_energy)  # 1% of max RMS
+        if segment_rms < silence_threshold:
+            energy_score = 0.0  # Force silent segments to zero energy
+        else:
+            energy_score = (
+                0.4 * (segment_rms / np.max(rms_energy)) +
+                0.4 * (segment_centroid / np.max(spectral_centroids)) +
+                0.2 * (segment_zcr / np.max(zero_crossing_rate))
+                    )
         
         segments.append({
             'start_time': start_time,
@@ -79,7 +90,8 @@ def analyze_beat_energy(y, sr, beat_times):
 def classify_beat_segments(segments, threshold=0.5):
     """Classify beat segments as high or low energy"""
     energies = [seg['energy'] for seg in segments]
-    energy_threshold = np.percentile(energies, threshold * 100)
+    #energy_threshold = np.percentile(energies, threshold * 100)
+    energy_threshold = np.median(energies)  
     
     classified = []
     for seg in segments:
@@ -92,7 +104,7 @@ def classify_beat_segments(segments, threshold=0.5):
     
     return classified
 
-def identify_energy_neighborhoods(classified_segments, min_section_duration=8.0, hysteresis_factor=0.15):
+def identify_energy_neighborhoods(classified_segments, min_section_duration=8.0, hysteresis_factor=0.15,enable_merging=False):
     """
     Group consecutive segments into musically meaningful neighborhoods (verses, choruses, etc.)
     Every beat is analyzed but short sections are merged to create meaningful song structure
@@ -114,8 +126,11 @@ def identify_energy_neighborhoods(classified_segments, min_section_duration=8.0,
     # Second pass: create initial neighborhoods
     initial_neighborhoods = create_initial_neighborhoods(smoothed_segments)
     
+    if enable_merging:
     # Third pass: merge short sections to meet minimum duration
-    final_neighborhoods = merge_short_neighborhoods(initial_neighborhoods, min_section_duration)
+        final_neighborhoods = merge_short_neighborhoods(initial_neighborhoods, min_section_duration)
+    else:
+        final_neighborhoods = initial_neighborhoods
     
     # Assign final IDs
     for i, neighborhood in enumerate(final_neighborhoods):
@@ -513,7 +528,7 @@ def plot_energy_with_transitions(y, sr, beat_times, classified_segments, neighbo
     
     plt.show()
 
-def save_complete_analysis(neighborhoods, stats, transitions, classified_segments, output_file='complete_energy_analysis_miserybusiness.txt'):
+def save_complete_analysis(neighborhoods, stats, transitions, classified_segments, output_file='cigarette_daydreams_vocals.txt'):
     """Save complete analysis including neighborhoods, transitions, and beat-level features"""
     import pandas as pd
     
@@ -615,22 +630,22 @@ def main_with_neighborhoods(audio_file):
     timestamps = {}
     try:
         # Existing analysis
-        beat_times, tempo, beat_frames, y, sr = detect_beats(audio_file[:-4].lower()+"_paramore_drums.wav")
+        beat_times, tempo, beat_frames, y, sr = detect_beats(audio_file)
         segments = analyze_beat_energy(y, sr, beat_times)
         classified_segments = classify_beat_segments(segments)
         
         # Neighborhood analysis for song structure
-        neighborhoods = identify_energy_neighborhoods(classified_segments, hysteresis_factor=0.01, min_section_duration=2)
+        neighborhoods = identify_energy_neighborhoods(classified_segments, hysteresis_factor=0.01, min_section_duration=1.5,enable_merging=True)
         stats, high_neighborhoods, low_neighborhoods = analyze_neighborhood_patterns(neighborhoods)
         
         # NEW: Transition detection for verse/chorus changes
         raw_transitions = detect_energy_transitions(classified_segments, 
                                                    spike_threshold=0.25, 
                                                    lookback_window=4)
-        significant_transitions = refine_transitions(raw_transitions, min_time_gap=8.0)
+        significant_transitions = refine_transitions(raw_transitions, min_time_gap=6.0)
         
         # Save analysis with beat-level features
-        timestamps = save_complete_analysis(neighborhoods, stats, significant_transitions, classified_segments, audio_file[:-4]+'_paramore_drums.txt')
+        timestamps = save_complete_analysis(neighborhoods, stats, significant_transitions, classified_segments, audio_file[:-4].lower()+'_analysis.txt')
         
     except FileNotFoundError:
         print(f"Error: File '{audio_file}' not found.")
@@ -640,5 +655,6 @@ def main_with_neighborhoods(audio_file):
 
 
 if __name__ == "__main__":
-    neighborhoods, stats, transitions, timestamps = main_with_neighborhoods('miserybusiness.wav')
-    print(type(neighborhoods[0]))
+    file_path='comealittlecloser_cagetheelephant.wav'
+
+    neighborhoods, stats, transitions, timestamps = main_with_neighborhoods(file_path)
