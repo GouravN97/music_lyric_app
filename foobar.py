@@ -1,7 +1,7 @@
 from moviepy.video.tools.drawing import color_gradient
 import sqlite3
 import pickle
-import ana2 
+import ana3
 import moviepy as mp
 import numpy as np
 from typing import Dict, Tuple
@@ -11,7 +11,7 @@ import os
 from PIL import Image, ImageDraw, ImageFont
 import random
 import advanced_textfx as tfx
-import math
+import classifying_lyrics,metadata_analysis
 
 # Text effects functions from the second program
 def random_blinking_effect(text, duration=3, size=(1920, 1080), fontsize=80, start_time=0):
@@ -158,51 +158,61 @@ def get_picture_vid(duration):
     clip.with_effects([mp.vfx.FadeOut(0.2)])            
     return clip
 
-def create_lyric_video_pil(audio_file: str, lyrics_with_timing: Dict[int, Tuple[str, float, float]], word_timings: Dict[int, Tuple[str, float, float]],
-                          output_file: str = "lyric_video5.mp4", use_title_effects: bool = True):
-    """
-    Enhanced lyric video creation with integrated text effects
-    """        
-    text_colors=["#0D9053","#E0E845","#1B8DBA","#E80E12","#D2D2D2","#900D71","#FD9000"]
-    bg_colors=[("#8DB673"),("#00236A","#DF8A00"),("#000275","#003563"),("#D8DC4E","#D560CE"),("#000000","#0D9053","#000275","#E80E12","#900D71","#DF8A00"),("#E384C5","#E80E12"),("#E80E12","#E9FC42")]
-    fonts=["BERNHC","BRITANIC","BROADW","COLONNA","ELEPHNT","ELEPHNTI","GILLUBCD","HTOWER","HTOWERI","LBRITE","LBRITED","LBRITEDI","LBRITEI","SCRIPTBL","segoesc","segoescb","smalle","times","timesbd","timesbi","timesi","VINERITC","VIVALDII","VLADIMIR","STENCIL"]
-    # Load audio
-    audio = mp.AudioFileClip(audio_file).subclipped(0,40)
-    duration = audio.duration
-    neighborhoods, stats, significant_transitions,timestamps=ana2.main_with_neighborhoods(audio_file)
+def get_sentence_timings(audio_file):
+    #to visualise the classification
+    #import metadata_analysis
+    #high_intensity, df_analyzed = metadata_analysis.analyze_moving_average_above_thresholds('cigarettedaydreams_cagetheelephant_beats.csv')
+    details=[]
+    current=""
+    with open(audio_file[:-4]+'.txt','r') as lyric_file:
+        for i,line in enumerate(lyric_file.readlines()):
+            if line.__contains__('[') :
+                if   line.__contains__('Pre-Chorus'):
+                    current='Pre-Chorus'
+                elif line.__contains__('Chorus'):
+                    current='Chorus'
+                elif line.__contains__('Verse'):
+                    current='Verse'
+                elif line.__contains__('Bridge')  :
+                    current='Bridge'
+                    
+                else:
+                    pass
+            else:
+                if len(line)!=1:
+                    details.append(current)
+    lyric_file.close()
+    #print(details)
+    return details
     
-    avg_dur=0.0
-    avg_gap=0.0
-    avg_sentence_dur=0.0
-    prev=0.0
-    for i in range(len(word_timings)):
-        avg_gap=avg_gap*i+(word_timings[i][1]-prev)
-        avg_gap/=(i+1)
-        avg_dur=avg_dur*i+(word_timings[i][2]-word_timings[i][1])
-        avg_dur/=(i+1)
-        prev=word_timings[i][2]
+        
 
-    idx=0
-    for k,lyric in lyrics_with_timing.items():
-        avg_sentence_dur=avg_sentence_dur*idx+(lyric[2]-lyric[1])
-        avg_sentence_dur/=(idx+1)
-        idx+=1
-
-    print("average duration =",avg_sentence_dur)
-    current="#D2D2D2"
-    def make_text_clip(text, start_time, duration, sentence_details, font_size=81, img_size=(1920, 1080),drop=False):
+def create_lyric_video_pil(audio_file: str, lyrics_with_timing: Dict[int, Tuple[str, float, float]], word_timings: Dict[int, Tuple[str, float, float]],
+                          output_file: str = "lyric_video8.mp4", use_title_effects: bool = True):
+   
+    zoom_duration=0
+    zoom_scale=4.0
+    blur_intensity=1.5
+    blur_duration=0.5
+    duplicatefx=False
+    dfx=False
+    cyclefx=True
+    def make_text_clip(text, start_time, duration, sentence_details, chosen_font='timesi',font_size=81, img_size=(1920, 1080),drop=False,capitalise=False,drop_effect=None):
         """
         Creates a text clip that shows words appearing one by one with proper text wrapping
         """
-        print(f"Creating word-by-word clip for: '{text}'")
+
+        print(f"ENTERING make_text_clip function: '{text}'")
         current_color=current
         sentence_words=text.split()
-        print(f"Words: {sentence_words}")
-
-        enlarged_font_size = int(font_size * 2)
+        #print(f"Words: {sentence_words}")
+        #print(sentence_details)
+        enlarged_font_size = int(font_size * 1.74)
     
-        font = ImageFont.truetype("GILLUBCD.ttf", font_size)
-        enlarged_font = ImageFont.truetype(random.choice(fonts)+".ttf", enlarged_font_size)
+        font = ImageFont.truetype(chosen_font+".ttf", font_size)
+        smallfont=ImageFont.truetype(chosen_font+".ttf", int(font_size/2))
+        enlarged_font = ImageFont.truetype(chosen_font+".ttf", enlarged_font_size)
+        superenlarged_font=ImageFont.truetype('STENCIL.ttf',enlarged_font_size*2)
     
         
         # Calculate available width with margins (10% margin on each side)
@@ -246,30 +256,30 @@ def create_lyric_video_pil(audio_file: str, lyrics_with_timing: Dict[int, Tuple[
         text_width = bbox[2] - bbox[0]
         text_height = bbox[3] - bbox[1]
         
-        print(f"Wrapped text dimensions: {text_width}x{text_height}")
-        print(sentence_details)
+        #print(f"Wrapped text dimensions: {text_width}x{text_height}")
+        #print(sentence_details)
 
         # Center position for text placement
         base_x = (img_size[0] - text_width) // 2
         base_y = (img_size[1] - text_height) // 2
         
         # Find word clips
+        word_clip=None
         word_clips = []
         accumulated_text = ""        
         font_to_use=font
+        last_word_end_time=0.0
         for i, word in enumerate(sentence_words):
             # Build accumulated text (all words up to current word)
-            if (i==len(sentence_words)-1):
-                current_color=text_colors[random.randint(0,len(text_colors)-1)]
+            if (i==len(sentence_words)-1 and drop):
+                current_color=colors[random.randint(0,len(colors)-1)]
                 font_to_use=enlarged_font
                 
             if i == 0:
                 accumulated_text = word
-                
             else:
                 accumulated_text += " " + word
                 
-            
             # Wrap the accumulated text
             wrapped_accumulated = wrap_text_to_width(accumulated_text, font_to_use)            
             # Find timing for this word from word_timings
@@ -285,36 +295,71 @@ def create_lyric_video_pil(audio_file: str, lyrics_with_timing: Dict[int, Tuple[
                 bbox = draw.multiline_textbbox((0, 0), wrapped_accumulated, font=font_to_use, align='center', spacing=24)
                 enlarged_text_width = bbox[2] - bbox[0]
                 enlarged_text_height = bbox[3] - bbox[1]
-                enlarged_x = (img_size[0] - enlarged_text_width) // 2
-                enlarged_y = (img_size[1] - enlarged_text_height) // 2
-                
+                if zoom_duration>0:
+                    enlarged_x = (img_size[0] - enlarged_text_width) // 8
+                    enlarged_y = (img_size[1] - enlarged_text_height) // 8
+                else:
+                    enlarged_x = (img_size[0] - enlarged_text_width) // 2
+                    enlarged_y = (img_size[1] - enlarged_text_height) // 2
+                if dfx:              
+                    draw.multiline_text((enlarged_x/1.04, enlarged_y/1.01), text=wrapped_accumulated, font=font_to_use, 
+                                fill='white', spacing=24, align='left')
+                    draw.multiline_text((enlarged_x/0.96, enlarged_y/0.99), text=wrapped_accumulated, font=font_to_use, 
+                                fill='white', spacing=24, align='left')
+                if duplicatefx:
+                       
+                    draw.multiline_text((enlarged_x, enlarged_y), text=wrapped_accumulated, font=superenlarged_font, 
+                                fill='white', spacing=24, align='left')
+                    draw.multiline_text((enlarged_x/3, enlarged_y/3), text=wrapped_accumulated, font=enlarged_font, 
+                                fill=current_color, spacing=24, align='left') 
+                else:
                 # Draw wrapped accumulated text with enlarged font
-                draw.multiline_text((enlarged_x, enlarged_y), text=wrapped_accumulated, font=font_to_use, 
+                    draw.multiline_text((enlarged_x, enlarged_y), text=wrapped_accumulated, font=font_to_use, 
                                 fill=current_color, spacing=24, align='left')
             else:
                 # Draw wrapped accumulated text with normal font and original positioning
                 draw.multiline_text((base_x, base_y), text=wrapped_accumulated, font=font_to_use, 
                                 fill=current_color, spacing=24, align='left')
+                
+
             # Calculate clip duration - from when this word appears until next word or end
-            clip_start = word_start
+            clip_start=word_start
+            clip_duration = word_end - word_start
+                      
+            if word_start-0.09>=0:
+                clip_start = word_start-0.09
+            
             try:
-                clip_duration = sentence_details[i+1][1] - word_start 
+                #print(sentence_details[i+1][1])
+                clip_duration = sentence_details[i+1][1] - float(clip_start )
+                #print("next="+sentence_details[i+1])
             except:
+                print("EXCEPT BLOCK")
                 clip_duration = word_end - word_start
             
             # Apply duration capping as in original
-            if clip_duration > avg_dur + avg_gap:
+            '''
+            if clip_duration > 3*(avg_dur + avg_gap):
+                print(sentence_details[i][0]+" capped")
                 clip_duration = avg_dur + avg_gap
-                try:
-                    clip_start = sentence_details[i+1][1] - clip_duration
-                except:
-                    pass
-            
+            '''
+            last_word_end_time=clip_start
             if clip_duration > 0:
-                word_clip = mp.ImageClip(np.array(img), duration=clip_duration).with_start(clip_start-0.09)
+                word_clip = mp.ImageClip(np.array(img), duration=clip_duration).with_start(clip_start)
                 word_clips.append(word_clip)
                 print(f"Word '{word}' clip: start={clip_start:.2f}, duration={clip_duration:.2f}")
-        
+
+        if cyclefx:
+            img = Image.new('RGBA', img_size, (0, 0, 0, 0))
+            draw = ImageDraw.Draw(img)
+            for i in range(10):
+                font_to_use=ImageFont.truetype(random.choice(fonts)+'.ttf',font_size)
+                draw.multiline_text((base_x, base_y), text=wrapped_accumulated, font=font_to_use, 
+                                fill=current_color, spacing=24, align='left')
+                word_clip = mp.ImageClip(np.array(img), duration=1/10).with_start(clip_start+clip_duration+i/10)
+                word_clips.append(word_clip)
+
+
         if not word_clips:
             print("No word clips created, creating fallback")
             # Create a fallback clip with wrapped text
@@ -336,10 +381,34 @@ def create_lyric_video_pil(audio_file: str, lyrics_with_timing: Dict[int, Tuple[
         
         # Combine all word clips
         final_clip = mp.CompositeVideoClip(word_clips)
+
+        if drop:
+        # Create zoom effect that starts after the last word ends
+            zoom_start_time = last_word_end_time+0.3
+            
+            # Define zoom function - starts at scale 1.0 and zooms to zoom_scale
+            def zoom_effect(t):
+                if t < zoom_start_time:
+                    return 1.0
+                elif t < zoom_start_time + zoom_duration:
+                    # Linear interpolation from 1.0 to zoom_scale
+                    progress = (t - zoom_start_time) / zoom_duration
+                    return 1.0 + (zoom_scale - 1.0) * progress
+                else:
+                    return zoom_scale
+            
+            
+            # Apply the zoom effect
+            #mp.vfx.Resize(zoom_effect)
+            #mp.vfx.SuperSample(0.5,20)
+            #mp.vfx.Resize(lambda t:1+int(t/2))
+            #mp.vfx.Blink(0.1,0.1)
+            #mp.vfx.SlideOut(0.3,'right')
+            #final_clip = final_clip.with_effects([mp.vfx.InvertColors()])
+            
+            print(f"Zoom effect applied: starts at {zoom_start_time:.2f}s, duration={zoom_duration}s, max_scale={zoom_scale}")
         return final_clip
 
-    '''
-    '''
 
     def make_text_clip_fade(text, words, start_time, duration, font_size=81, img_size=(1920, 1080), fade_duration=0.5):
         """
@@ -471,7 +540,70 @@ def create_lyric_video_pil(audio_file: str, lyrics_with_timing: Dict[int, Tuple[
             gradient[:, x] = [r, g, b]
         
         return gradient
+    """
+    Enhanced lyric video creation with integrated text effects
+    """        
+    colors=["#0D9053","#E0E845","#1B8DBA","#E80E12","#D2D2D2","#900D71","#FD9000"]
+    bg_colors=[("#8DB673","#00236A"),
+               ("#00236A","#900D71","#DF8A00"),
+               ("#000275","#003563","#D560CE","#D8DC4E"),
+               ("#D8DC4E","#D560CE"),
+               ("#000000","#0D9053","#000275","#E80E12","#900D71","#DF8A00"),
+               ("#E384C5","#E80E12"),
+               ("#E80E12","#E9FC42")]
+
+    fonts=["BERNHC","BRITANIC","BROADW","COLONNA","ELEPHNT","ELEPHNTI","GILLUBCD","HTOWER","HTOWERI","LBRITE","LBRITED","LBRITEDI","LBRITEI","SCRIPTBL","segoesc","segoescb","times","timesbd","timesbi","timesi","VINERITC","VIVALDII","VLADIMIR","STENCIL"]
+
+    # Load audio
+    audio = mp.AudioFileClip(audio_file).subclipped(0,6)
+    duration = audio.duration
+    neighborhoods, stats, significant_transitions,timestamps=ana3.main_with_neighborhoods(audio_file)
+
     
+    avg_dur=0.0
+    avg_gap=0.0
+    avg_sentence_dur=0.0
+    prev=0.0
+    for i in range(len(word_timings)):
+        avg_gap=avg_gap*i+(word_timings[i][1]-prev)
+        avg_gap/=(i+1)
+        avg_dur=avg_dur*i+(word_timings[i][2]-word_timings[i][1])
+        avg_dur/=(i+1)
+        prev=word_timings[i][2]
+
+    idx=0
+    for k,lyric in lyrics_with_timing.items():
+        avg_sentence_dur=avg_sentence_dur*idx+(lyric[2]-lyric[1])
+        avg_sentence_dur/=(idx+1)
+        idx+=1
+
+    classifications=[]
+    periods=metadata_analysis.analyze_moving_average_above_thresholds(audio_file[:-4]+'_analysis_beats.csv')
+    intensities=classifying_lyrics.classify(lyrics_with_timing,periods=periods)[0]
+    parts=get_sentence_timings(audio_file=audio_file)
+
+    print(len(intensities))
+    print(len(parts))
+    for idx in range(len(parts)):
+
+        classification=(intensities[idx],parts[idx])
+        classifications.append(classification)
+    
+    print(classifications)
+
+    print("average duration =",avg_sentence_dur)
+    current="#D2D2D2"
+
+    verses=['VINERITC','timesi','timesbi','segoesc','ELEPHNTI']
+    choruses=['STENCIL','BERNHC','BRITANIC','ELEPHNT']
+    slow=['LBRITE','COLONNA','LBRITED','LBRITEDI','VIVALDII','HTOWERT','VLADIMIR']
+    chosen_font=""
+
+    lyric_fonts=[]
+    lyric_fonts.append(random.choice(verses))
+    lyric_fonts.append(random.choice(verses))
+    lyric_fonts.append(random.choice(choruses))
+
     bg_clips=[]
     c=0
     #print(neighborhoods)
@@ -497,10 +629,11 @@ def create_lyric_video_pil(audio_file: str, lyrics_with_timing: Dict[int, Tuple[
             break
         c+=1
     '''
-    #bg=mp.VideoClip(make_background,duration=audio.duration)
-    #bg_clips=[bg]
+    bg=mp.VideoClip(make_background,duration=audio.duration)
+    bg_clips=[bg]
     # Create text clips using PIL
     text_clips = []
+
     
     print(f"Processing {len(lyrics_with_timing)} sentences")
     print(f"Word timings has {len(word_timings)} words")
@@ -513,8 +646,9 @@ def create_lyric_video_pil(audio_file: str, lyrics_with_timing: Dict[int, Tuple[
     # Process each sentence from lyrics_with_timing
     for sentence_idx in range(len(lyrics_with_timing)):
         if sentence_idx not in lyrics_with_timing:
-            continue
-            
+            continue      
+
+        
         sentence_text, sentence_start_time, sentence_end_time = lyrics_with_timing[sentence_idx]
         sentence_duration = sentence_end_time - sentence_start_time
         
@@ -527,7 +661,8 @@ def create_lyric_video_pil(audio_file: str, lyrics_with_timing: Dict[int, Tuple[
         
         for idx in range(total_words,total_words+len(sentence_words)):
             sentence_word_timings.append(word_timings[idx])
-
+        #print("SENTENCE WORD TIMINGS")
+        #print(sentence_word_timings)
         total_words+=len(sentence_words)
 
         print(f"Found {len(sentence_words)} words for sentence: {sentence_words}")
@@ -544,11 +679,11 @@ def create_lyric_video_pil(audio_file: str, lyrics_with_timing: Dict[int, Tuple[
         if (sentence_idx == 0 and sentence_duration > avg_sentence_dur * 2 and use_title_effects and not title_card_added):
             print("Adding title card with text effects")
             
-            artist = "PARAMORE"  # You can make this dynamic
-            title = "MISERY BUSINESS"  # You can make this dynamic
+            artist = "CAGE THE ELEPHANT"  # You can make this dynamic
+            title = "CIGARETTE DAYDREAMS"  # You can make this dynamic
             
             # Calculate duration for each effect (split the available time)
-            effect_duration = min(avg_sentence_dur, sentence_duration / 3)
+            effect_duration = min(avg_sentence_dur-2, sentence_duration / 3)
             
             # Create title card
             title_card = create_title_card_with_effects(artist=artist, title=title, duration_each=effect_duration)
@@ -556,13 +691,41 @@ def create_lyric_video_pil(audio_file: str, lyrics_with_timing: Dict[int, Tuple[
             text_clips.append(title_card)
             title_card_added = True
         
+        chosen_size=69
+        drop=False
+        #intensity,part
+        if (classifications[sentence_idx][1].lower()!='chorus' ):
+            if (classifications[sentence_idx][1].lower()=='verse') :
+                chosen_font=lyric_fonts[0]
+            else:
+                chosen_font=lyric_fonts[1]
+                if lyric_fonts[1]==lyric_fonts[0]:
+                    lyric_fonts[1]=random.choice(verses)
+            
+            try:
+                if classifications[sentence_idx+1][0].lower()=='high intensity':
+                    drop=True
+            except:
+                drop=False
+                
+        else:
+            chosen_size=81
+            drop=True
+            if (classifications[sentence_idx][0].lower()=='high intensity'):
+                chosen_font=lyric_fonts[2]
+            else:
+                chosen_font=lyric_fonts[0]
+        
         # Create text clip for this sentence with word-by-word reveal
         print(sentence_word_timings)
         sentence_clip = make_text_clip(
             sentence_text,            
             sentence_start_time,
             sentence_duration,
-            sentence_word_timings
+            sentence_word_timings,
+            chosen_font=chosen_font,
+            drop=True,
+            font_size=chosen_size
         )
         
         if sentence_clip:
@@ -584,7 +747,7 @@ def create_lyric_video_pil(audio_file: str, lyrics_with_timing: Dict[int, Tuple[
         
     # Write video
     myvideo.write_videofile(output_file,
-                               fps=16,
+                               fps=20,
                                bitrate='8000k',
                                codec='libx264',
                                audio_codec='aac',
@@ -615,5 +778,5 @@ if __name__ == "__main__":
     restored={}
     if row:
         restored=pickle.loads(row[0])
-
+    get_sentence_timings(name+".wav")
     create_lyric_video_pil(name+".wav",lyrics_with_timing=restored,word_timings=word_timings)
