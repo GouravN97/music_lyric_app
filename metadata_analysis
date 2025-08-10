@@ -1,0 +1,194 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+def analyze_moving_average_above_thresholds(csv_file, moving_avg_window=5):
+    """
+    Analyze timestamps where moving average is above both RMS mean and median,
+    ignoring dips below min(mean, median) for less than 4 beats.
+    """
+    # Load data
+    df = pd.read_csv(csv_file)
+    
+    # Calculate RMS statistics
+    rms_values = df['rms'].values
+    rms_mean = np.mean(rms_values)
+    rms_median = np.median(rms_values)
+    min_threshold = min(rms_mean, rms_median)
+    
+    print(f"RMS Mean: {rms_mean:.6f}")
+    print(f"RMS Median: {rms_median:.6f}")
+    print(f"Minimum threshold: {min_threshold:.6f}")
+    
+    # Calculate moving average (same logic as in the original code)
+    def calculate_moving_average(data, window_size):
+        moving_avg = []
+        for i in range(len(data)):
+            if i < window_size - 1:
+                # For initial values, use available data
+                avg = np.mean(data[:i+1])
+            else:
+                # Standard moving average
+                avg = np.mean(data[i-window_size+1:i+1])
+            moving_avg.append(avg)
+        return moving_avg
+    
+    rms_moving_avg = calculate_moving_average(rms_values, moving_avg_window)
+    df['rms_moving_avg_calc'] = rms_moving_avg
+    
+    # Find periods where moving average is above both mean and median
+    above_both = (np.array(rms_moving_avg) > rms_mean) & (np.array(rms_moving_avg) > rms_median)
+    
+    # Find continuous segments above both thresholds
+    segments = []
+    start_idx = None
+    
+    for i in range(len(above_both)):
+        if above_both[i] and start_idx is None:
+            start_idx = i
+        elif not above_both[i] and start_idx is not None:
+            segments.append((start_idx, i-1))
+            start_idx = None
+    
+    # Handle case where data ends while still above threshold
+    if start_idx is not None:
+        segments.append((start_idx, len(above_both)-1))
+    
+    print(f"\nInitial segments above both mean and median: {len(segments)}")
+    
+    # Now apply the rule: ignore dips below min_threshold for less than 4 beats
+    # This means we need to merge segments that are separated by gaps < 4 beats
+    # where the gap values are above min_threshold
+    
+    merged_segments = []
+    
+    for i, (start, end) in enumerate(segments):
+        if not merged_segments:
+            merged_segments.append([start, end])
+        else:
+            # Check gap between current segment and last merged segment
+            last_end = merged_segments[-1][1]
+            gap_start = last_end + 1
+            gap_end = start - 1
+            gap_length = gap_end - gap_start + 1
+            
+            if gap_length > 0 and gap_length < 4:
+                # Check if all values in gap are above min_threshold
+                gap_values = rms_moving_avg[gap_start:gap_end+1]
+                if all(val >= min_threshold for val in gap_values):
+                    # Merge with previous segment
+                    merged_segments[-1][1] = end
+                else:
+                    # Start new segment
+                    merged_segments.append([start, end])
+            else:
+                # Gap is too long or doesn't exist, start new segment
+                merged_segments.append([start, end])
+    
+    print(f"Merged segments (ignoring brief dips): {len(merged_segments)}")
+    
+    # Extract timestamps for merged segments
+    timestamp_periods = []
+    
+    for start_idx, end_idx in merged_segments:
+        start_time = df.iloc[start_idx]['start_time']
+        end_time = df.iloc[end_idx]['start_time']
+        duration = end_time - start_time
+        beat_count = end_idx - start_idx + 1
+        
+        timestamp_periods.append({
+            'start_beat': df.iloc[start_idx]['beat_number'],
+            'end_beat': df.iloc[end_idx]['beat_number'],
+            'start_time': start_time,
+            'end_time': end_time,
+            'duration': duration,
+            'beat_count': beat_count,
+            'avg_moving_avg': np.mean(rms_moving_avg[start_idx:end_idx+1]),
+            'max_moving_avg': np.max(rms_moving_avg[start_idx:end_idx+1]),
+            'min_moving_avg': np.min(rms_moving_avg[start_idx:end_idx+1])
+        })
+    
+    # Print results
+    print(f"\n=== TIMESTAMPS WHERE MOVING AVERAGE > BOTH MEAN AND MEDIAN ===")
+    print(f"(Ignoring dips below {min_threshold:.6f} for < 4 beats)")
+    print("="*80)
+    
+    total_duration = 0
+    total_beats = 0
+    
+    for i, period in enumerate(timestamp_periods, 1):
+        print(f"\nPeriod {i}:")
+        print(f"  Beats: {period['start_beat']} - {period['end_beat']} ({period['beat_count']} beats)")
+        print(f"  Time: {period['start_time']:.2f}s - {period['end_time']:.2f}s ({period['duration']:.2f}s)")
+        print(f"  Moving Avg Range: {period['min_moving_avg']:.6f} - {period['max_moving_avg']:.6f}")
+        print(f"  Average Moving Avg: {period['avg_moving_avg']:.6f}")
+        
+        total_duration += period['duration']
+        total_beats += period['beat_count']
+    
+    print(f"\n=== SUMMARY ===")
+    print(f"Total periods: {len(timestamp_periods)}")
+    print(f"Total duration above thresholds: {total_duration:.2f}s")
+    print(f"Total beats above thresholds: {total_beats}")
+    
+    if len(df) > 0:
+        total_song_duration = df.iloc[-1]['start_time'] - df.iloc[0]['start_time']
+        print(f"Percentage of song above thresholds: {(total_duration/total_song_duration)*100:.1f}%")
+    
+    # Create visualization
+    plt.figure(figsize=(16, 10))
+    
+    times = df['start_time'].values
+    
+    # Plot RMS values and moving average
+    plt.plot(times, rms_values, 'o-', color='green', alpha=0.5, markersize=3, 
+             linewidth=1, label='RMS Energy')
+    plt.plot(times, rms_moving_avg, '-', color='darkgreen', linewidth=2.5, 
+             label=f'RMS Moving Average (window={moving_avg_window})')
+    
+    # Add threshold lines
+    plt.axhline(y=rms_mean, color='red', linestyle='--', linewidth=2, 
+                label=f'RMS Mean: {rms_mean:.6f}', alpha=0.8)
+    plt.axhline(y=rms_median, color='blue', linestyle='--', linewidth=2, 
+                label=f'RMS Median: {rms_median:.6f}', alpha=0.8)
+    plt.axhline(y=min_threshold, color='purple', linestyle=':', linewidth=2, 
+                label=f'Min Threshold: {min_threshold:.6f}', alpha=0.8)
+    
+    # Highlight periods above both thresholds
+    for i, period in enumerate(timestamp_periods):
+        start_time = period['start_time']
+        end_time = period['end_time']
+        plt.axvspan(start_time, end_time, alpha=0.2, color='yellow', 
+                   label='Above Both Thresholds' if i == 0 else "")
+    
+    plt.xlabel('Time (seconds)')
+    plt.ylabel('RMS Energy')
+    plt.title('RMS Energy Analysis: Periods Above Both Mean and Median')
+    plt.legend()
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+
+    # Save the plot
+    plt.savefig(csv_file[:-4]+'rms_moving_average_analysis.png', dpi=300, bbox_inches='tight')
+    print(f"\nPlot saved as 'rms_moving_average_analysis.png'")
+    
+    #plt.show()
+    
+    periods=[]
+    for p in timestamp_periods:
+        periods.append({'start_time':p['start_time'], 'end_time':p['end_time']})
+    print("Intensity classifications:")
+    print(periods)
+    #return timestamp_periods, df
+    return periods
+
+# Run analysis
+if __name__=="__main__":
+    timestamp_periods, df_analyzed = analyze_moving_average_above_thresholds('cigarettedaydreams_cagetheelephant_beats.csv')
+
+    # Print detailed timestamp list for easy reference
+    print(f"\n=== DETAILED TIMESTAMP LIST ===")
+    for i, period in enumerate(timestamp_periods, 1):
+        print(f"Period {i}: {period['start_time']:.2f}s - {period['end_time']:.2f}s")
+    
+    print(type(timestamp_periods))
