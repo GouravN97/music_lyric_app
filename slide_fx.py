@@ -1,4 +1,4 @@
-from moviepy import ImageClip, CompositeVideoClip, ColorClip, vfx
+from moviepy import ImageClip, CompositeVideoClip, ColorClip
 import random
 import numpy as np
 import math
@@ -173,7 +173,8 @@ def create_angled_sliding_clip(image_path, duration, output_path="angled_sliding
                              screen_width=1920, screen_height=1080, angle_degrees=0,
                              color_filter_type="none", custom_filter_rgb=None, filter_intensity=0.5,
                              filter_blend_mode='multiply', background_color=(0, 0, 0),
-                             movement_type='fit_height', zoom_factor=1.0, reverse_direction=False):
+                             movement_type='fit_height', zoom_factor=1.0, reverse_direction=False,
+                             rotate_image=False, rotation_angle=None, rotation_mode='match_movement'):
     """
     Create a video clip from a still image with sliding pan effect at any angle.
     
@@ -193,6 +194,13 @@ def create_angled_sliding_clip(image_path, duration, output_path="angled_sliding
         movement_type (str): 'fit_height', 'fit_width', 'fill_screen', or 'contain'
         zoom_factor (float): Additional zoom factor (1.0 = no additional zoom)
         reverse_direction (bool): If True, reverses the movement direction
+        rotate_image (bool): If True, rotates the image during sliding
+        rotation_angle (float): Custom rotation angle. If None, uses movement angle or calculates automatically
+        rotation_mode (str): 'match_movement' (rotate to match slide direction), 
+                            'perpendicular' (rotate 90° to movement), 
+                            'custom' (use rotation_angle), 
+                            'spin' (continuous rotation during slide),
+                            'counter_spin' (spin opposite to movement)
     
     Returns:
         VideoClip: The final video clip
@@ -234,6 +242,46 @@ def create_angled_sliding_clip(image_path, duration, output_path="angled_sliding
     # Create ImageClip from the filtered array
     img_clip = ImageClip(image_array, duration=duration)
     img_clip = img_clip.resized((new_width, new_height))
+    
+    # Apply rotation if requested
+    if rotate_image:
+        if rotation_mode == 'match_movement':
+            # Rotate image to align with movement direction
+            final_rotation = angle_degrees if rotation_angle is None else rotation_angle
+            img_clip = img_clip.rotated(math.radians(final_rotation))
+            
+        elif rotation_mode == 'perpendicular':
+            # Rotate 90 degrees to movement direction
+            final_rotation = angle_degrees + 90 if rotation_angle is None else rotation_angle
+            img_clip = img_clip.rotated(math.radians(final_rotation))
+            
+        elif rotation_mode == 'custom' and rotation_angle is not None:
+            # Use custom rotation angle
+            img_clip = img_clip.rotated(math.radians(rotation_angle))
+            
+        elif rotation_mode == 'spin':
+            # Continuous rotation during the slide
+            rotations_per_slide = 1 if rotation_angle is None else rotation_angle / 360
+            def rotate_func(t):
+                progress = t / duration
+                current_rotation = progress * rotations_per_slide * 2 * math.pi
+                return current_rotation
+            img_clip = img_clip.rotated(rotate_func)
+            
+        elif rotation_mode == 'counter_spin':
+            # Spin opposite to movement direction
+            rotations_per_slide = -1 if rotation_angle is None else -rotation_angle / 360
+            def rotate_func(t):
+                progress = t / duration
+                current_rotation = progress * rotations_per_slide * 2 * math.pi
+                return current_rotation
+            img_clip = img_clip.rotated(rotate_func)
+    
+    # Get updated dimensions after rotation (if applied)
+    if rotate_image and rotation_mode in ['match_movement', 'perpendicular', 'custom']:
+        # For static rotations, we need to recalculate dimensions
+        # MoviePy automatically adjusts clip size after rotation
+        pass
     
     # Calculate movement vector and canvas requirements
     dx, dy, extra_width, extra_height = calculate_angle_movement(
@@ -378,15 +426,15 @@ def apply_advanced_color_filter(image_array, filter_type="sepia", custom_rgb=Non
 
 # Example usage and demonstrations
 if __name__ == "__main__":
-    image_path = "CD/cte6.jpg"
+    image_path = "CD/cte2.jpg"
     duration = 4
     
-    # Example 1: Single angled clip (45 degrees - diagonal down-right)
-    print("Creating diagonal sliding clip (45°)...")
+    # Example 1: Diagonal slide with matching rotation (image rotates to slide direction)
+    print("Creating diagonal sliding clip with matching rotation (45°)...")
     clip = create_angled_sliding_clip(
         image_path=image_path,
         duration=duration,
-        output_path="CD/diagonal_45deg_clip.mp4",
+        output_path="CD/diagonal_45deg_rotated.mp4",
         angle_degrees=45,
         color_filter_type="custom",
         custom_filter_rgb=(255, 200, 150),  # Warm filter
@@ -394,6 +442,95 @@ if __name__ == "__main__":
         filter_blend_mode='overlay',
         background_color=(20, 25, 35),
         movement_type='fit_height',
-        zoom_factor=1.2
+        zoom_factor=1.2,
+        rotate_image=True,
+        rotation_mode='match_movement'  # Image rotates to match slide direction
     )
-    clip.write_videofile("CD/diagonal_45deg_clip.mp4", fps=24, codec='libx264')
+    clip.write_videofile("CD/diagonal_45deg_rotated.mp4", fps=24, codec='libx264')
+    
+    # Example 2: Vertical slide with spinning image
+    print("Creating vertical sliding clip with spinning rotation...")
+    clip2 = create_angled_sliding_clip(
+        image_path=image_path,
+        duration=duration,
+        output_path="CD/vertical_spin_clip.mp4",
+        angle_degrees=90,  # Slide down
+        color_filter_type="cool",
+        background_color=(15, 25, 45),
+        movement_type='fit_width',
+        zoom_factor=1.1,
+        rotate_image=True,
+        rotation_mode='spin',
+        rotation_angle=720  # 2 full rotations during slide
+    )
+    clip2.write_videofile("CD/vertical_spin_clip.mp4", fps=24, codec='libx264')
+    
+    # Example 3: Horizontal slide with perpendicular rotation
+    print("Creating horizontal slide with perpendicular rotation...")
+    clip3 = create_angled_sliding_clip(
+        image_path=image_path,
+        duration=duration,
+        output_path="CD/horizontal_perpendicular.mp4",
+        angle_degrees=0,  # Slide right
+        color_filter_type="sepia",
+        background_color=(40, 35, 30),
+        movement_type='fit_height',
+        zoom_factor=1.0,
+        rotate_image=True,
+        rotation_mode='perpendicular'  # Rotate 90° to movement direction
+    )
+    clip3.write_videofile("CD/horizontal_perpendicular.mp4", fps=24, codec='libx264')
+    
+    # Example 4: Custom angle slide with custom rotation
+    print("Creating custom angle slide with custom rotation...")
+    clip4 = create_angled_sliding_clip(
+        image_path=image_path,
+        duration=duration,
+        output_path="CD/custom_angle_custom_rotation.mp4",
+        angle_degrees=127,  # Custom slide angle
+        color_filter_type="custom",
+        custom_filter_rgb=(180, 255, 180),  # Green tint
+        filter_intensity=0.3,
+        background_color=(25, 15, 35),
+        movement_type='fill_screen',
+        zoom_factor=0.9,
+        rotate_image=True,
+        rotation_mode='custom',
+        rotation_angle=30  # Custom 30° rotation
+    )
+    clip4.write_videofile("CD/custom_angle_custom_rotation.mp4", fps=24, codec='libx264')
+    
+    # Example 5: Counter-spinning effect
+    print("Creating slide with counter-spin rotation...")
+    clip5 = create_angled_sliding_clip(
+        image_path=image_path,
+        duration=duration,
+        output_path="CD/counter_spin_effect.mp4",
+        angle_degrees=315,  # Slide up-right
+        color_filter_type="dramatic",
+        background_color=(10, 10, 20),
+        movement_type='fit_height',
+        zoom_factor=1.3,
+        rotate_image=True,
+        rotation_mode='counter_spin',
+        rotation_angle=540  # 1.5 rotations opposite to movement
+    )
+    clip5.write_videofile("CD/counter_spin_effect.mp4", fps=24, codec='libx264')
+    
+    
+    print("\n🎬 All clips with rotation effects created successfully!")
+    print("\nRotation Modes Available:")
+    print("  🔄 match_movement: Image rotates to align with slide direction")
+    print("  ⟂ perpendicular: Image rotates 90° to slide direction")
+    print("  🎯 custom: Image rotates to specified angle")
+    print("  🌀 spin: Image spins continuously during slide")
+    print("  🔄 counter_spin: Image spins opposite to movement")
+    print("\nAngle Reference:")
+    print("  0° = Right →")
+    print(" 45° = Down-Right ↘")
+    print(" 90° = Down ↓")
+    print("135° = Down-Left ↙")
+    print("180° = Left ←")
+    print("225° = Up-Left ↖")
+    print("270° = Up ↑")
+    print("315° = Up-Right ↗")
