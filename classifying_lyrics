@@ -1,0 +1,173 @@
+import csv
+import argparse
+import json
+from typing import List, Dict, Tuple, Any
+
+class SongIntensityClassifier:
+    """
+    A generic classifier for determining sentence intensity in songs based on timing data.
+    """
+    
+    def __init__(self, timings: dict, high_intensity_periods: List[Dict[str, float]]):
+        """
+        Initialize the classifier with CSV file and high intensity periods.
+        
+        Args:
+            csv_file_path: Path to CSV file containing timing data
+            high_intensity_periods: List of dicts with 'start_time' and 'end_time' keys
+        """
+        self.timings = timings
+        self.high_intensity_periods = high_intensity_periods
+        self.timing_data = {}
+        
+    def parse_csv_file(self) -> Dict[int, Tuple[float, float]]:
+        """
+        Parse the CSV file to extract timing data, ignoring the first row (lyrics).
+        
+        Returns:
+            Dictionary mapping sentence index to (start_time, end_time) tuple
+        """
+        timing_data = {}
+        
+        for idx,t in (self.timings.items()):
+            #print(t)
+            timing_data[idx]=(t[1],t[2])
+            
+        self.timing_data = timing_data
+        return timing_data
+    
+    def check_overlap(self, sentence_start: float, sentence_end: float, 
+                     period_start: float, period_end: float) -> bool:
+        """
+        Check if a sentence's timing overlaps with a high intensity period.
+        
+        Args:
+            sentence_start: Sentence start time
+            sentence_end: Sentence end time
+            period_start: High intensity period start time
+            period_end: High intensity period end time
+            
+        Returns:
+            True if there's overlap, False otherwise
+        """
+        return sentence_start < period_end and sentence_end > period_start
+    
+    def classify_sentences(self) -> List[Tuple[int, float, float, str, List[int]]]:
+        """
+        Classify each sentence as 'high intensity' or 'normal'.
+        
+        Returns:
+            List of tuples: (index, start_time, end_time, classification, overlapping_periods)
+        """
+        if not self.timing_data:
+            self.parse_csv_file()
+            
+        results = []
+        
+        for idx in sorted(self.timing_data.keys()):
+            start_time, end_time = self.timing_data[idx]
+            
+            # Check overlap with each high intensity period
+            overlapping_periods = []
+            for period_idx, period in enumerate(self.high_intensity_periods, 1):
+                if self.check_overlap(start_time, end_time, 
+                                    period['start_time'], period['end_time']):
+                    overlapping_periods.append(period_idx)
+            
+            classification = 'high intensity' if overlapping_periods else 'normal'
+            results.append((idx, start_time, end_time, classification, overlapping_periods))
+            
+        return results
+    
+    def get_classification_list(self) -> List[str]:
+        """
+        Get a simple list of classifications for each sentence.
+        
+        Returns:
+            List of strings: either 'high intensity' or 'normal'
+        """
+        results = self.classify_sentences()
+        return [classification for _, _, _, classification, _ in results]
+    
+    def print_detailed_results(self):
+        """Print detailed classification results."""
+        results = self.classify_sentences()
+        
+        print("Sentence Classification Results:")
+        print("=" * 70)
+        print(f"{'Index':<6} {'Start':<9} {'End':<9} {'Classification':<15} {'Periods'}")
+        print("-" * 70)
+        
+        for idx, start, end, classification, periods in results:
+            period_str = f"{periods}" if periods else "[]"
+            print(f"{idx:<6} {start:<9.3f} {end:<9.3f} {classification:<15} {period_str}")
+        
+        classification_list = self.get_classification_list()
+        print("\n" + "=" * 70)
+        print("Final Classification List:")
+        print(classification_list)
+        
+        print(f"\nSummary:")
+        print(f"Total sentences: {len(classification_list)}")
+        print(f"High intensity: {classification_list.count('high intensity')}")
+        print(f"Normal: {classification_list.count('normal')}")
+        
+        # Show period details
+        print(f"\nHigh Intensity Periods:")
+        for i, period in enumerate(self.high_intensity_periods, 1):
+            print(f"Period {i}: {period['start_time']}s - {period['end_time']}s")
+            overlapping_sentences = [idx for idx, _, _, _, periods in results if i in periods]
+            print(f"  Sentences in this period: {overlapping_sentences}")
+
+def load_periods_from_json(json_file_path: str) -> List[Dict[str, float]]:
+    """
+    Load high intensity periods from a JSON file.
+    
+    Expected format:
+    [
+        {"start_time": 53.08, "end_time": 67.27},
+        {"start_time": 94.13, "end_time": 105.70}
+    ]
+    """
+    try:
+        with open(json_file_path, 'r') as file:
+            periods = json.load(file)
+            
+        # Validate format
+        for i, period in enumerate(periods):
+            if not isinstance(period, dict) or 'start_time' not in period or 'end_time' not in period:
+                raise ValueError(f"Invalid period format at index {i}")
+            if period['start_time'] >= period['end_time']:
+                raise ValueError(f"Invalid period at index {i}: start_time >= end_time")
+                
+        return periods
+    except Exception as e:
+        raise Exception(f"Error loading periods from JSON: {str(e)}")
+
+# Example usage as a module
+def classify(sentence_timings,periods):
+    
+    # Create classifier
+    classifier = SongIntensityClassifier(sentence_timings, periods)
+    
+    # Get results
+    classification_list = classifier.get_classification_list()
+    detailed_results = classifier.classify_sentences()
+    
+    # Print results
+    classifier.print_detailed_results()
+    
+    return classification_list, detailed_results
+
+'''
+if __name__ == "__main__":
+    # Define high intensity periods
+    periods = [
+        {'start_time': 53.08, 'end_time': 67.27},
+        {'start_time': 94.13, 'end_time': 105.70},
+        {'start_time': 108.32, 'end_time': 170.43},
+        {'start_time': 189.38, 'end_time': 204.64}
+    ]
+    result=classify(csvfile='output.csv',periods=periods)
+    print(result[0])
+'''
