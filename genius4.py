@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, scrolledtext
 from PIL import Image, ImageTk, ImageDraw, ImageFont
-import enhanced 
+import main_prg 
 import lyricsgenius,pickle,sqlite3
 import store_lyrics,spotifyimagedownloader
 import threading,os
@@ -383,7 +383,7 @@ class LyricsDownloaderGUI:
             if row:
                 restored=pickle.loads(row[0])
 
-            enhanced.create_lyric_video_pil(artist=self.current_song.artist,title=self.current_song.title,audio_file=name+".wav",lyrics_with_timing=restored,word_timings=word_timings)
+            main_prg.create_lyric_video_pil(artist=self.current_song.artist,title=self.current_song.title,audio_file=name+".wav",lyrics_with_timing=restored,word_timings=word_timings)
 
             # Enable check button
             self.check_btn.config(state=tk.NORMAL)
@@ -438,3 +438,4 @@ def start():
 
 if __name__ == "__main__":
     start()
+
