@@ -208,7 +208,7 @@ def main(title, artist,album,file_path):
     for artist, song in tracks:
         print("\n" + "="*60)
         downloader.download_all(artist, song)
-    wikipedia_trial.main(artist,album,file_path)
+    #wikipedia_trial.main(artist,album,file_path)
 
 if __name__ == "__main__":
     main("The Strokes","Reptilia")
