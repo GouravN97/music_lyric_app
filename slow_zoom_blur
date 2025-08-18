@@ -30,6 +30,443 @@ def apply_color_filter_to_image(image_array, red_factor=1.0, green_factor=1.0, b
     
     return filtered_image.astype(np.uint8)
 
+def apply_rgb_overlay_filter(image_array, rgb_color=(255, 255, 255), intensity=0.3, blend_mode='overlay'):
+    """
+    Apply a custom RGB color overlay/tint to the image
+    
+    Args:
+        image_array (np.array): Input image array
+        rgb_color (tuple): RGB color values (0-255) for the filter
+        intensity (float): Intensity of the filter (0.0 to 1.0)
+        blend_mode (str): How to blend the color ('overlay', 'multiply', 'screen', 'soft_light')
+    
+    Returns:
+        np.array: Filtered image array
+    """
+    filtered_image = image_array.copy().astype(np.float32)
+    h, w, c = filtered_image.shape
+    
+    # Create color overlay
+    r, g, b = rgb_color
+    color_overlay = np.zeros_like(filtered_image)
+    color_overlay[:, :, 0] = r
+    color_overlay[:, :, 1] = g
+    color_overlay[:, :, 2] = b
+    
+    if blend_mode == 'overlay':
+        # Overlay blend mode
+        mask = filtered_image < 128
+        result = np.where(mask, 
+                         2 * filtered_image * color_overlay / 255,
+                         255 - 2 * (255 - filtered_image) * (255 - color_overlay) / 255)
+    elif blend_mode == 'multiply':
+        # Multiply blend mode
+        result = filtered_image * color_overlay / 255
+    elif blend_mode == 'screen':
+        # Screen blend mode
+        result = 255 - ((255 - filtered_image) * (255 - color_overlay) / 255)
+    elif blend_mode == 'soft_light':
+        # Soft light blend mode
+        mask = color_overlay <= 128
+        result = np.where(mask,
+                         filtered_image - (255 - 2 * color_overlay) * filtered_image * (255 - filtered_image) / (255 * 255),
+                         filtered_image + (2 * color_overlay - 255) * (np.sqrt(filtered_image / 255) * 255 - filtered_image) / 255)
+    else:
+        # Default to simple blend
+        result = filtered_image
+    
+    # Apply intensity
+    final_result = filtered_image * (1 - intensity) + result * intensity
+    
+    return np.clip(final_result, 0, 255).astype(np.uint8)
+
+def apply_rgb_color_cast(image_array, rgb_color=(255, 200, 150), intensity=0.4):
+    """
+    Apply an RGB color cast by adjusting color temperature/tint
+    
+    Args:
+        image_array (np.array): Input image array
+        rgb_color (tuple): RGB color values (0-255) for the cast
+        intensity (float): Intensity of the color cast (0.0 to 1.0)
+    
+    Returns:
+        np.array: Color-cast image array
+    """
+    filtered_image = image_array.copy().astype(np.float32)
+    
+    # Normalize RGB color to factors
+    r, g, b = rgb_color
+    max_val = max(r, g, b)
+    if max_val > 0:
+        r_factor = 1.0 + (r / max_val - 1.0) * intensity
+        g_factor = 1.0 + (g / max_val - 1.0) * intensity
+        b_factor = 1.0 + (b / max_val - 1.0) * intensity
+    else:
+        r_factor = g_factor = b_factor = 1.0
+    
+    # Apply color cast
+    filtered_image[:, :, 0] *= r_factor
+    filtered_image[:, :, 1] *= g_factor
+    filtered_image[:, :, 2] *= b_factor
+    
+    return np.clip(filtered_image, 0, 255).astype(np.uint8)
+
+def create_zoomed_blur_slide_clip(image_path, duration, output_path="zoomed_blur_slide.mp4",
+                                screen_width=1920, screen_height=1080, 
+                                zoom_factor=5.0, blur_radius=8, direction=None,
+                                color_filter_type="warm", custom_rgb_color=None, 
+                                rgb_intensity=0.3, rgb_blend_mode='overlay'):
+    """
+    Create a video clip with zoom, blur, and sliding effects including custom RGB filters.
+    
+    Args:
+        image_path (str): Path to the input image
+        duration (float): Duration of the clip in seconds
+        output_path (str): Path for the output video file
+        screen_width (int): Width of the output video
+        screen_height (int): Height of the output video
+        zoom_factor (float): How much to zoom into the image (1.0 = no zoom, 5.0 = 5x zoom)
+        blur_radius (int): Radius of Gaussian blur effect
+        direction (str): 'left', 'right', 'up', 'down'. If None, chooses randomly
+        color_filter_type (str): 'warm', 'cool', 'sepia', 'custom_rgb', or 'none'
+        custom_rgb_color (tuple): RGB color values (0-255) when using 'custom_rgb' filter
+        rgb_intensity (float): Intensity of RGB filter (0.0 to 1.0)
+        rgb_blend_mode (str): Blend mode for RGB filter ('overlay', 'multiply', 'screen', 'soft_light')
+    
+    Returns:
+        VideoClip: The final video clip
+    """
+    
+    # Load and process the image with PIL first
+    pil_image = Image.open(image_path)
+    
+    # Convert to RGB if not already
+    if pil_image.mode != 'RGB':
+        pil_image = pil_image.convert('RGB')
+    
+    # Convert to numpy array
+    image_array = np.array(pil_image)
+    
+    # Apply blur effect
+    if blur_radius > 0:
+        image_array = apply_gaussian_blur(image_array, blur_radius)
+    
+    # Apply color filter to the image array
+    if color_filter_type == "warm":
+        image_array = apply_color_filter_to_image(image_array, red_factor=1.3, green_factor=1.1, blue_factor=0.8)
+    elif color_filter_type == "cool":
+        image_array = apply_color_filter_to_image(image_array, red_factor=0.8, green_factor=1.0, blue_factor=1.3)
+    elif color_filter_type == "sepia":
+        image_array = apply_color_filter_to_image(image_array, red_factor=1.2, green_factor=1.0, blue_factor=0.7)
+    elif color_filter_type == "custom_rgb" and custom_rgb_color is not None:
+        image_array = apply_rgb_overlay_filter(image_array, custom_rgb_color, rgb_intensity, rgb_blend_mode)
+    # If color_filter_type == "none", no filter is applied
+    
+    # Create ImageClip from the processed array
+    img_clip = ImageClip(image_array, duration=duration)
+    
+    # Get image dimensions
+    img_height, img_width = image_array.shape[:2]
+    
+    # Apply zoom by scaling the image up
+    zoomed_width = int(img_width * zoom_factor)
+    zoomed_height = int(img_height * zoom_factor)
+    
+    # Resize the image with zoom
+    img_clip = img_clip.resized((zoomed_width, zoomed_height))
+    
+    # Choose direction randomly if not specified
+    if direction is None:
+        direction = random.choice(['left', 'right', 'up', 'down'])
+    
+    # Calculate sliding parameters based on direction with boundary checks
+    if direction in ['left', 'right']:
+        # Horizontal sliding
+        if zoomed_width > screen_width:
+            max_slide = min(zoomed_width - screen_width, zoomed_width - 1)
+            
+            if direction == 'left':
+                start_pos_x = 0
+                end_pos_x = -max_slide
+            else:  # direction == 'right'
+                start_pos_x = -max_slide
+                end_pos_x = 0
+        else:
+            # Image is narrower than screen - center it
+            center_offset = (screen_width - zoomed_width) // 2
+            start_pos_x = end_pos_x = center_offset
+        
+        # Center vertically with boundary check
+        if zoomed_height <= screen_height:
+            start_pos_y = end_pos_y = max(0, (screen_height - zoomed_height) // 2)
+        else:
+            # If image is taller than screen, crop from center
+            start_pos_y = end_pos_y = -(zoomed_height - screen_height) // 2
+        
+    else:  # direction in ['up', 'down']
+        # Vertical sliding
+        if zoomed_height > screen_height:
+            max_slide = min(zoomed_height - screen_height, zoomed_height - 1)
+            
+            if direction == 'up':
+                start_pos_y = 0
+                end_pos_y = -max_slide
+            else:  # direction == 'down'
+                start_pos_y = -max_slide
+                end_pos_y = 0
+        else:
+            # Image is shorter than screen - center it
+            center_offset = (screen_height - zoomed_height) // 2
+            start_pos_y = end_pos_y = center_offset
+        
+        # Center horizontally with boundary check
+        if zoomed_width <= screen_width:
+            start_pos_x = end_pos_x = max(0, (screen_width - zoomed_width) // 2)
+        else:
+            # If image is wider than screen, crop from center
+            start_pos_x = end_pos_x = -(zoomed_width - screen_width) // 2
+    
+    # Create the sliding animation function with bounds checking
+    def get_position(t):
+        progress = min(1.0, max(0.0, t / duration))  # Clamp progress between 0 and 1
+        current_x = start_pos_x + (end_pos_x - start_pos_x) * progress
+        current_y = start_pos_y + (end_pos_y - start_pos_y) * progress
+        
+        # Ensure positions don't go out of reasonable bounds
+        current_x = max(-zoomed_width, min(screen_width, current_x))
+        current_y = max(-zoomed_height, min(screen_height, current_y))
+        
+        return (current_x, current_y)
+    
+    # Apply position animation
+    img_clip = img_clip.with_position(get_position)
+    
+    # Create final composite with black background
+    clip = CompositeVideoClip([img_clip], size=(screen_width, screen_height))
+    
+    return clip
+
+def apply_advanced_color_filter(image_array, filter_type="sepia", custom_rgb_color=None, rgb_intensity=0.4):
+    """
+    Apply advanced color filters using matrix transformations and custom RGB
+    """
+    filtered_image = image_array.copy().astype(np.float32)
+    
+    if filter_type == "sepia":
+        # Sepia transformation matrix
+        sepia_matrix = np.array([
+            [0.393, 0.769, 0.189],
+            [0.349, 0.686, 0.168],
+            [0.272, 0.534, 0.131]
+        ])
+        # Reshape image for matrix multiplication
+        h, w, c = filtered_image.shape
+        filtered_image = filtered_image.reshape(-1, 3)
+        filtered_image = np.dot(filtered_image, sepia_matrix.T)
+        filtered_image = filtered_image.reshape(h, w, 3)
+        
+    elif filter_type == "vintage":
+        # Vintage filter with reduced contrast and warm tint
+        filtered_image = filtered_image * 0.8 + 30  # Reduce contrast, add warmth
+        filtered_image[:, :, 0] *= 1.1  # Slight red boost
+        filtered_image[:, :, 2] *= 0.9  # Slight blue reduction
+        
+    elif filter_type == "cold":
+        # Cold/blue filter
+        filtered_image[:, :, 0] *= 0.7  # Reduce red
+        filtered_image[:, :, 1] *= 0.9  # Slightly reduce green
+        filtered_image[:, :, 2] *= 1.3  # Boost blue
+        
+    elif filter_type == "dramatic":
+        # High contrast dramatic look
+        filtered_image = (filtered_image - 128) * 1.5 + 128  # Increase contrast
+        filtered_image[:, :, 0] *= 1.1  # Slight red boost
+    
+    elif filter_type == "custom_rgb" and custom_rgb_color is not None:
+        # Apply custom RGB color cast
+        filtered_image = np.clip(filtered_image, 0, 255).astype(np.uint8)
+        filtered_image = apply_rgb_color_cast(filtered_image, custom_rgb_color, rgb_intensity)
+        return filtered_image
+    
+    return np.clip(filtered_image, 0, 255).astype(np.uint8)
+
+def create_zoomed_blur_slide_advanced(image_path, duration, output_path="zoomed_blur_slide_advanced.mp4",
+                                    screen_width=1920, screen_height=1080,
+                                    zoom_factor=5.0, blur_radius=8, direction=None,
+                                    filter_type="custom_rgb", custom_rgb_color=None, rgb_intensity=0.4):
+    """
+    Advanced version with matrix-based color filters, zoom, blur effects, and custom RGB
+    
+    Args:
+        filter_type (str): "sepia", "vintage", "cold", "dramatic", "custom_rgb", or "none"
+        custom_rgb_color (tuple): RGB color values (0-255) when using 'custom_rgb' filter
+        rgb_intensity (float): Intensity of RGB filter (0.0 to 1.0)
+    """
+    # Load and process the image
+    pil_image = Image.open(image_path)
+    if pil_image.mode != 'RGB':
+        pil_image = pil_image.convert('RGB')
+    
+    image_array = np.array(pil_image)
+    
+    # Apply blur effect first
+    if blur_radius > 0:
+        image_array = apply_gaussian_blur(image_array, blur_radius)
+    
+    # Apply advanced color filter
+    if filter_type != "none":
+        image_array = apply_advanced_color_filter(image_array, filter_type, custom_rgb_color, rgb_intensity)
+    
+    # Create ImageClip from the processed array
+    img_clip = ImageClip(image_array, duration=duration)
+    
+    # Get image dimensions and apply zoom
+    img_height, img_width = image_array.shape[:2]
+    zoomed_width = int(img_width * zoom_factor)
+    zoomed_height = int(img_height * zoom_factor)
+    
+    img_clip = img_clip.resized((zoomed_width, zoomed_height))
+    
+    # Choose direction randomly if not specified
+    if direction is None:
+        direction = random.choice(['left', 'right', 'up', 'down'])
+    
+    # Calculate sliding parameters (same logic as basic version) with boundary checks
+    if direction in ['left', 'right']:
+        if zoomed_width > screen_width:
+            max_slide = min(zoomed_width - screen_width, zoomed_width - 1)
+            if direction == 'left':
+                start_pos_x, end_pos_x = 0, -max_slide
+            else:
+                start_pos_x, end_pos_x = -max_slide, 0
+        else:
+            # Image is narrower than screen - center it
+            center_offset = (screen_width - zoomed_width) // 2
+            start_pos_x = end_pos_x = center_offset
+        
+        # Center vertically with boundary check
+        if zoomed_height <= screen_height:
+            start_pos_y = end_pos_y = max(0, (screen_height - zoomed_height) // 2)
+        else:
+            start_pos_y = end_pos_y = -(zoomed_height - screen_height) // 2
+    else:
+        if zoomed_height > screen_height:
+            max_slide = min(zoomed_height - screen_height, zoomed_height - 1)
+            if direction == 'up':
+                start_pos_y, end_pos_y = 0, -max_slide
+            else:
+                start_pos_y, end_pos_y = -max_slide, 0
+        else:
+            # Image is shorter than screen - center it
+            center_offset = (screen_height - zoomed_height) // 2
+            start_pos_y = end_pos_y = center_offset
+        
+        # Center horizontally with boundary check
+        if zoomed_width <= screen_width:
+            start_pos_x = end_pos_x = max(0, (screen_width - zoomed_width) // 2)
+        else:
+            start_pos_x = end_pos_x = -(zoomed_width - screen_width) // 2
+    
+    def get_position(t):
+        progress = t / duration
+        current_x = start_pos_x + (end_pos_x - start_pos_x) * progress
+        current_y = start_pos_y + (end_pos_y - start_pos_y) * progress
+        return (current_x, current_y)
+    
+    img_clip = img_clip.with_position(get_position)
+    clip = CompositeVideoClip([img_clip], size=(screen_width, screen_height))
+    
+    #clip.write_videofile(output_path, fps=24, codec='libx264')
+    return clip
+
+# Example usage
+if __name__ == "__main__":
+    image_path = "CD/cte2.jpg"
+    duration = 6
+    
+    # Example 1: Using custom RGB filter with the basic function
+    print("Creating video with custom purple tint...")
+    clip1 = create_zoomed_blur_slide_clip(
+        image_path=image_path,
+        duration=duration,
+        output_path="purple_tinted_slide.mp4",
+        zoom_factor=4.0,
+        blur_radius=10,
+        direction='right',
+        color_filter_type="custom_rgb",
+        custom_rgb_color=(150, 50, 200),  # Purple tint
+        rgb_intensity=0.4,
+        rgb_blend_mode='overlay'
+    )
+    clip1.write_videofile("purple_tinted_slide.mp4", fps=24, codec='libx264')
+    
+    # Example 2: Using custom RGB filter with the advanced function
+    print("Creating video with custom orange/golden tint...")
+    clip2 = create_zoomed_blur_slide_advanced(
+        image_path=image_path,
+        duration=duration,
+        output_path="golden_tinted_slide.mp4",
+        zoom_factor=5.0,
+        blur_radius=8,
+        direction='up',
+        filter_type="custom_rgb",
+        custom_rgb_color=(255, 180, 80),  # Golden/orange tint
+        rgb_intensity=0.5
+    )
+    '''
+    # Example 3: Cyan/blue-green tint
+    print("Creating video with cyan tint...")
+    clip3 = create_zoomed_blur_slide_advanced(
+        image_path=image_path,
+        duration=duration,
+        output_path="cyan_tinted_slide.mp4",
+        zoom_factor=3.5,
+        blur_radius=6,
+        direction='left',
+        filter_type="custom_rgb",
+        custom_rgb_color=(0, 255, 200),  # Cyan tint
+        rgb_intensity=0.3
+    )
+    '''
+    print("All custom RGB filtered videos created!")
+    print("Available RGB blend modes: 'overlay', 'multiply', 'screen', 'soft_light'")
+    print("RGB intensity range: 0.0 (no effect) to 1.0 (maximum effect)")
+    print("RGB color format: (Red, Green, Blue) with values 0-255")
+
+
+'''
+from moviepy import ImageClip, CompositeVideoClip
+import random
+import numpy as np
+from PIL import Image, ImageFilter
+import cv2
+
+def apply_gaussian_blur(image_array, blur_radius=5):
+    """
+    Apply Gaussian blur to image array using OpenCV
+    """
+    # Convert to uint8 if not already
+    if image_array.dtype != np.uint8:
+        image_array = image_array.astype(np.uint8)
+    
+    # Apply Gaussian blur
+    blurred = cv2.GaussianBlur(image_array, (blur_radius*2+1, blur_radius*2+1), 0)
+    return blurred
+
+def apply_color_filter_to_image(image_array, red_factor=1.0, green_factor=1.0, blue_factor=1.0):
+    """
+    Apply color filter directly to a numpy image array
+    """
+    # Make a copy to avoid modifying original
+    filtered_image = image_array.copy()
+    
+    # Apply color multiplication
+    filtered_image[:, :, 0] = np.clip(filtered_image[:, :, 0] * red_factor, 0, 255)    # Red
+    filtered_image[:, :, 1] = np.clip(filtered_image[:, :, 1] * green_factor, 0, 255)  # Green  
+    filtered_image[:, :, 2] = np.clip(filtered_image[:, :, 2] * blue_factor, 0, 255)   # Blue
+    
+    return filtered_image.astype(np.uint8)
+
 def create_zoomed_blur_slide_clip(image_path, duration, output_path="zoomed_blur_slide.mp4",
                                 screen_width=1920, screen_height=1080, 
                                 zoom_factor=5.0, blur_radius=8, direction=None,
@@ -283,7 +720,7 @@ if __name__ == "__main__":
     output_path = "zoomed_blur_slide1.mp4"
     
     # Basic version with simple color filters
-    '''
+    
     clip = create_zoomed_blur_slide_clip(
         image_path=image_path,
         duration=duration,
@@ -296,14 +733,14 @@ if __name__ == "__main__":
         color_filter_type="warm"  # "warm", "cool", "sepia", or "none"
     )
     clip.write_videofile(output_path, fps=24, codec='libx264')
-    '''
+    
     # Or use the advanced version with matrix-based filters
     clip = create_zoomed_blur_slide_advanced(
         image_path=image_path,
         duration=duration,
         output_path="advanced_zoomed_blur_slide.mp4",
-        zoom_factor=8.0,
-        blur_radius=16,
+        zoom_factor=5.0,
+        blur_radius=8,
         direction='up',
         filter_type="sepia"  # "sepia", "vintage", "cold", "dramatic", or "none"
     )
@@ -311,3 +748,4 @@ if __name__ == "__main__":
     print(f"Zoomed blur slide clip created: {output_path}")
     print(f"Duration: {duration} seconds")
     print(f"Zoom factor: 4.0x with blur and sliding effect")
+'''
