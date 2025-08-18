@@ -21,5 +21,11 @@ E.g., blindinglights_theweeknd.wav ,
 
 9. The background effects in the final video are created using moviepy. The text is displayed using PIL.
 
-10. Changes in the song are pinpointed using the librosa library. That way we can change each background effect exactly on that beat, and not out of sync.
+10. Changes in the song are pinpointed using the librosa library.It can be used to detect beats accurately. That way we can change each background effect exactly on that beat, and not out of sync.
+
+11. The librosa library is used to analyse the audio of the song and calculate the amplitude, frequency, etc and ultimately calculate the "energy" of each beat. This energy is visually saved as a graph in matplotlib.
+
+12. So by calculating the energy of each beat, if we calculate the median and mean, we see that the parts above the mean always are in the chorus and parts below it are usually verses.
+13. Therefore we have classified each lyric according to its "intensity".
+14. Depending upon the intensity we 
    
