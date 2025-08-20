@@ -1,31 +1,87 @@
-# music_lyric_app
+🎵 Music Lyric App
+Automatically create synchronized lyric videos for any English song with dynamic visual effects
 
-This program , given the title and artist of any english* song, automatically creates a lyric video out of it, displaying each word when it is sung. The entire project is done in python.
+This Python-powered application takes a song title and artist name, then generates a professional-quality lyric video where each word appears precisely when it's sung, complete with beat-synchronized background effects and intensity-based visual styling.
 
-1.Download the song into your working directory as a .wav file in the format <title>_<artist>.wav where the title and artist names have no caps, spaces or other special characters.
-E.g., blindinglights_theweeknd.wav , 
+✨ Features
+🎯 Automatic Lyric Synchronization: Each word appears exactly when sung
+🎨 Dynamic Visual Effects: Background effects change with the beat
+📊 Audio Analysis: Intelligent classification of song sections (verse, chorus) based on energy levels
+🖼️ Smart Image Fetching: Automatically sources relevant images from Spotify and Wikipedia
+🔊 Vocal Isolation: Separates vocals from instruments for precise alignment
+⚡ Beat Detection: Uses advanced audio analysis to sync effects perfectly
+🚀 How It Works
+Step 1: Audio Preparation
+Download your song into the working directory as a .wav file using the format:
 
-2. Open genius4.py .Give the song name and the artist. The Genius API is used to fetch the lyrics of the song, and click on "CREATE LYRIC VIDEO"
+<title>_<artist>.wav
+Example: blindinglights_theweeknd.wav
 
-3. The lyrics are parsed, word by word, and also sentence by sentence. This is so that the program knows when each sentence starts and ends.
-   
-4. The vocals of the song get separated from the rest of the instruments using the demucs python library.
+⚠️ Note: Remove capitals, spaces, and special characters from the filename
 
-5. Now each word is "aligned" to the exact time at which it is sung, using the ForceAlign library.
+Step 2: Launch the Application
+Open genius4.py
+Enter the song name and artist
+Click "CREATE LYRIC VIDEO"
+Step 3: Automated Processing Pipeline
+🔍 Lyric Extraction & Parsing
+Fetches lyrics using the Genius API
+Parses text word-by-word and sentence-by-sentence
+Identifies sentence boundaries for proper timing
+🎤 Vocal Separation
+Uses the Demucs library to isolate vocals from instruments
+Creates clean vocal track for accurate word alignment
+⏱️ Word Alignment
+ForceAlign library maps each word to its exact timestamp
+Creates precise timing data: {index: (word, start_time, end_time)}
+Generates similar dictionary for sentence-level timing
+🖼️ Visual Asset Collection
+Spotify API: Sources album artwork and artist images
+Wikipedia API: Fetches additional contextual imagery
+Builds comprehensive visual library for the video
+🎬 Video Generation
+MoviePy: Creates dynamic background effects
+PIL (Python Imaging Library): Handles text rendering and styling
+Combines all elements into synchronized video output
+🎵 Advanced Audio Analysis
+Librosa library performs comprehensive audio analysis:
+Beat detection and timing
+Amplitude and frequency analysis
+Energy calculation for each beat
+Generates visual energy graph using Matplotlib
+🎯 Smart Section Classification
+Calculates median and mean energy levels
+Above mean energy → Chorus sections
+Below mean energy → Verse sections
+Classifies each lyric by "intensity level"
+🎨 Dynamic Visual Effects
+Applies visual effects based on intensity classification
+Synchronizes effect changes with detected beats
+Creates immersive, music-responsive experience
+🛠️ Technology Stack
+Component	Library/API	Purpose
+Lyrics	Genius API	Lyric fetching
+Audio Processing	Demucs	Vocal separation
+Word Alignment	ForceAlign	Timestamp synchronization
+Images	Spotify + Wikipedia APIs	Visual assets
+Video Creation	MoviePy	Effects and composition
+Text Rendering	PIL	Typography and styling
+Audio Analysis	Librosa	Beat detection and energy analysis
+Visualization	Matplotlib	Energy graphing
+📁 Project Structure
+music_lyric_app/
+├── genius4.py              # Main application file
+├── <song>_<artist>.wav     # Audio files
+├── output/                 # Generated videos
+├── images/                 # Fetched visual assets
+└── analysis/              # Audio analysis data
+🎯 Output
+The final video features:
 
-6. This data gets stored in a dictionary in the format {<chronological order no> : (word, start_time, end_time)}
-   
-7. A similar dictionary is created for the sentences.
+Word-perfect synchronization with audio
+Beat-responsive background effects
+Intensity-based visual styling (verses vs. chorus)
+Professional typography and smooth transitions
+High-quality visual assets relevant to the song
+Transform any song into a captivating lyric video with the power of Python and advanced audio processing!
 
-8. Using the spotify and wikipedia api s , we fetch a bunch of images related to the song chosen.
-
-9. The background effects in the final video are created using moviepy. The text is displayed using PIL.
-
-10. Changes in the song are pinpointed using the librosa library.It can be used to detect beats accurately. That way we can change each background effect exactly on that beat, and not out of sync.
-
-11. The librosa library is used to analyse the audio of the song and calculate the amplitude, frequency, etc and ultimately calculate the "energy" of each beat. This energy is visually saved as a graph in matplotlib.
-
-12. So by calculating the energy of each beat, if we calculate the median and mean, we see that the parts above the mean always are in the chorus and parts below it are usually verses.
-13. Therefore we have classified each lyric according to its "intensity".
-14. Depending upon the intensity we 
-   
